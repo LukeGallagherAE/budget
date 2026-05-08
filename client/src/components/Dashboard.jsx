@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { differenceInDays, parseISO, format } from 'date-fns';
 import { Edit2, Trash2, CheckCircle, AlertCircle, Clock } from 'lucide-react';
 import { deleteExpense, payExpense } from '../api.js';

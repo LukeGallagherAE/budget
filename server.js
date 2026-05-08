@@ -7,7 +7,8 @@ const multer = require('multer');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { pool, initDB } = require('./database');
-const { parseCSV, analyzeRecurring } = require('./analyzeStatement');
+const pdfParse = require('pdf-parse');
+const { parseCSV, analyzeRecurring, parsePDF } = require('./analyzeStatement');
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -188,12 +189,19 @@ app.delete('/api/expenses/:id', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/import', requireAuth, upload.single('file'), (req, res) => {
+app.post('/api/import', requireAuth, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   try {
-    const text = req.file.buffer.toString('utf-8');
-    const transactions = parseCSV(text);
-    if (transactions.length === 0) return res.status(400).json({ error: 'Could not parse any transactions. Check the CSV format.' });
+    const isPDF = req.file.mimetype === 'application/pdf' || req.file.originalname?.toLowerCase().endsWith('.pdf');
+    let transactions;
+    if (isPDF) {
+      const pdfData = await pdfParse(req.file.buffer);
+      transactions = parsePDF(pdfData.text);
+    } else {
+      const text = req.file.buffer.toString('utf-8');
+      transactions = parseCSV(text);
+    }
+    if (transactions.length === 0) return res.status(400).json({ error: isPDF ? 'Could not parse transactions from this PDF. Make sure it is a text-based bank statement, not a scanned image.' : 'Could not parse any transactions. Check the CSV format.' });
     const recurring = analyzeRecurring(transactions);
     res.json({ transactions: transactions.length, recurring });
   } catch (e) {

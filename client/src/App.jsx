@@ -1,12 +1,27 @@
 import { useState, useEffect, useCallback } from 'react';
-import { LayoutDashboard, Calendar, Upload, Plus } from 'lucide-react';
+import { LayoutDashboard, Calendar, Upload, Plus, LogOut } from 'lucide-react';
+import { AuthProvider, useAuth } from './context/AuthContext.jsx';
+import AuthPage from './pages/AuthPage.jsx';
 import Dashboard from './components/Dashboard.jsx';
 import CalendarView from './components/CalendarView.jsx';
 import ImportView from './components/ImportView.jsx';
 import ExpenseModal from './components/ExpenseModal.jsx';
 import { fetchExpenses } from './api.js';
 
-export default function App() {
+function AppShell() {
+  const { user, loading, logout } = useAuth();
+
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center text-gray-500">Loading...</div>;
+  }
+
+  if (!user) return <AuthPage />;
+
+  return <MainApp />;
+}
+
+function MainApp() {
+  const { user, logout } = useAuth();
   const [tab, setTab] = useState('dashboard');
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -38,21 +53,17 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      {/* Header */}
       <header className="border-b border-gray-800 bg-gray-900/60 backdrop-blur sticky top-0 z-30">
         <div className="max-w-6xl mx-auto px-4 flex items-center justify-between h-14">
-          <div className="flex items-center gap-3">
-            <span className="text-xl font-bold tracking-tight text-white">ExpenseRadar</span>
-          </div>
+          <span className="text-xl font-bold tracking-tight text-white">ExpenseRadar</span>
+
           <nav className="flex items-center gap-1">
             {tabs.map(({ id, label, Icon }) => (
               <button
                 key={id}
                 onClick={() => setTab(id)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  tab === id
-                    ? 'bg-indigo-600 text-white'
-                    : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                  tab === id ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-800'
                 }`}
               >
                 <Icon size={15} />
@@ -60,17 +71,29 @@ export default function App() {
               </button>
             ))}
           </nav>
-          <button
-            onClick={openAdd}
-            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
-          >
-            <Plus size={15} />
-            Add Expense
-          </button>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={openAdd}
+              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+            >
+              <Plus size={15} />
+              Add Expense
+            </button>
+            <div className="flex items-center gap-2 pl-2 border-l border-gray-800">
+              <span className="text-xs text-gray-500 hidden sm:block">{user.email}</span>
+              <button
+                onClick={logout}
+                title="Sign out"
+                className="p-1.5 text-gray-500 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+              >
+                <LogOut size={15} />
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
-      {/* Content */}
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
         {loading ? (
           <div className="flex items-center justify-center h-64 text-gray-500">Loading...</div>
@@ -91,5 +114,13 @@ export default function App() {
         />
       )}
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppShell />
+    </AuthProvider>
   );
 }

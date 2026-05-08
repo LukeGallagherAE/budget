@@ -5,3 +5,4 @@ client/dist/
 *.db-shm
 *.db-wal
 .env
+

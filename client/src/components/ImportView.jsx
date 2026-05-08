@@ -90,9 +90,9 @@ export default function ImportView({ onImported }) {
         }`}
       >
         <Upload className="mx-auto mb-3 text-gray-500" size={32} />
-        <p className="text-gray-300 font-medium">Drop your CSV here, or click to browse</p>
-        <p className="text-xs text-gray-500 mt-1">Supports CSV files from most banks</p>
-        <input ref={inputRef} type="file" accept=".csv,.tsv" className="hidden" onChange={e => handleFile(e.target.files[0])} />
+        <p className="text-gray-300 font-medium">Drop your CSV or PDF here, or click to browse</p>
+        <p className="text-xs text-gray-500 mt-1">Supports CSV and PDF bank statements</p>
+        <input ref={inputRef} type="file" accept=".csv,.tsv,.pdf" className="hidden" onChange={e => handleFile(e.target.files[0])} />
       </div>
 
       {/* Format hint */}

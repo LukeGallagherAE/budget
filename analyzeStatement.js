@@ -193,4 +193,30 @@ function analyzeRecurring(transactions) {
   return recurring.sort((a, b) => b.confidence - a.confidence);
 }
 
-module.exports = { parseCSV, analyzeRecurring };
+
+function parsePDF(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 3);
+  const transactions = [];
+  for (const line of lines) {
+    const dateMatch = line.match(
+      /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})|(\d{4}[\/\-]\d{2}[\/\-]\d{2})|([A-Z][a-z]{2}\.?\s+\d{1,2},?\s+\d{4})|(\d{1,2}\s+[A-Z][a-z]{2}\.?\s+\d{4})/
+    );
+    if (!dateMatch) continue;
+    const amounts = [...line.matchAll(/(?<![0-9])(\d{1,3}(?:,\d{3})*\.\d{2})(?![0-9])/g)]
+      .map(m => parseFloat(m[1].replace(/,/g, '')))
+      .filter(n => n > 0.5 && n < 99999);
+    if (amounts.length === 0) continue;
+    let desc = line
+      .replace(dateMatch[0], '')
+      .replace(/(?<![0-9])(\d{1,3}(?:,\d{3})*\.\d{2})(?![0-9])/g, '')
+      .replace(/\b(CR|DR|CREDIT|DEBIT|OPENING|CLOSING|BALANCE|TOTAL|BROUGHT|FORWARD|CARRIED)\b/gi, '')
+      .replace(/[$£€+\-]/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    if (!desc || desc.length < 2) continue;
+    transactions.push({ date: dateMatch[0].trim(), description: desc, amount: amounts[amounts.length - 1] });
+  }
+  return transactions;
+}
+
+module.exports = { parseCSV, analyzeRecurring, parsePDF };

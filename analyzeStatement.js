@@ -1,28 +1,20 @@
 /**
- * Analyzes a bank statement CSV and detects recurring transactions.
- * Returns an array of detected recurring expense patterns.
+ * Analyzes a bank statement (CSV or PDF) and detects recurring transactions.
  */
 
 function parseCSV(text) {
   const lines = text.trim().split(/\r?\n/).filter(l => l.trim());
   if (lines.length < 2) return [];
-
-  // Parse header
   const header = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
-
-  // Find date, description, amount columns
   const dateCol = header.findIndex(h => /date|time|posted|transaction/i.test(h));
   const descCol = header.findIndex(h => /desc|memo|name|payee|merchant|narr/i.test(h));
   const amountCol = header.findIndex(h => /amount|debit|credit|sum|value/i.test(h));
-
   if (dateCol === -1 || descCol === -1 || amountCol === -1) {
-    // Fallback: assume cols 0=date, 1=desc, 2=amount
     return lines.slice(1).map(line => {
       const cols = splitCSVLine(line);
       return { date: cols[0]?.trim(), description: cols[1]?.trim(), amount: parseAmount(cols[2]) };
     }).filter(r => r.date && r.description && r.amount !== null);
   }
-
   return lines.slice(1).map(line => {
     const cols = splitCSVLine(line);
     return {
@@ -35,8 +27,7 @@ function parseCSV(text) {
 
 function splitCSVLine(line) {
   const result = [];
-  let cur = '';
-  let inQuotes = false;
+  let cur = '', inQuotes = false;
   for (const ch of line) {
     if (ch === '"') { inQuotes = !inQuotes; }
     else if (ch === ',' && !inQuotes) { result.push(cur); cur = ''; }
@@ -55,36 +46,37 @@ function parseAmount(str) {
 
 function normalizeDate(str) {
   if (!str) return null;
-  // Try various formats
-  const fmts = [
-    /^(\d{4})-(\d{2})-(\d{2})$/, // YYYY-MM-DD
-    /^(\d{2})\/(\d{2})\/(\d{4})$/, // MM/DD/YYYY
-    /^(\d{2})-(\d{2})-(\d{4})$/, // MM-DD-YYYY
-    /^(\d{2})\/(\d{2})\/(\d{2})$/, // MM/DD/YY
-  ];
-
-  // ISO
+  // ISO: YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
     const d = new Date(str);
     if (!isNaN(d)) return d;
   }
-
-  // MM/DD/YYYY
-  const m1 = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m1) return new Date(`${m1[3]}-${m1[1].padStart(2,'0')}-${m1[2].padStart(2,'0')}`);
-
-  // DD/MM/YYYY (European)
-  const m2 = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-  if (m2) return new Date(`${m2[3]}-${m2[2].padStart(2,'0')}-${m2[1].padStart(2,'0')}`);
-
+  // DD/MM/YYYY or MM/DD/YYYY — try DD/MM first (Australian), fallback swap if invalid
+  const m1 = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (m1) {
+    const [, a, b, yr] = m1;
+    // Try DD/MM/YYYY first
+    const d1 = new Date(`${yr}-${b.padStart(2,'0')}-${a.padStart(2,'0')}`);
+    if (!isNaN(d1)) return d1;
+    // Fallback: MM/DD/YYYY
+    const d2 = new Date(`${yr}-${a.padStart(2,'0')}-${b.padStart(2,'0')}`);
+    if (!isNaN(d2)) return d2;
+  }
+  // DD/MM/YY
+  const m2 = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2})$/);
+  if (m2) {
+    const yr = parseInt(m2[3]) + 2000;
+    const d = new Date(`${yr}-${m2[2].padStart(2,'0')}-${m2[1].padStart(2,'0')}`);
+    if (!isNaN(d)) return d;
+  }
+  // DD Mon YYYY or Mon DD YYYY
   const d = new Date(str);
   return isNaN(d) ? null : d;
 }
 
 function cleanDescription(desc) {
-  // Strip trailing numbers, dates, reference codes to normalize merchant names
   return desc
-    .replace(/\s+\d{4,}/g, '')
+    .replace(/\s+\d{6,}/g, '')
     .replace(/\s+#\w+/g, '')
     .replace(/\s+REF\w*/gi, '')
     .replace(/\s{2,}/g, ' ')
@@ -94,13 +86,13 @@ function cleanDescription(desc) {
 
 function guessCategory(name) {
   const n = name.toLowerCase();
-  if (/netflix|spotify|hulu|disney|apple|amazon prime|youtube|hbo|paramount|peacock|sling|tidal/.test(n)) return 'Subscriptions';
-  if (/gym|fitness|planet fitness|anytime fitness|crossfit/.test(n)) return 'Health';
-  if (/rent|mortgage|landlord|property/.test(n)) return 'Housing';
-  if (/electric|gas|water|sewage|internet|comcast|att|verizon|t-mobile|phone|broadband/.test(n)) return 'Utilities';
-  if (/insurance|geico|progressive|allstate|state farm/.test(n)) return 'Insurance';
-  if (/uber|lyft|transit|metro|bus|parking|fuel|gas station|shell|bp|chevron/.test(n)) return 'Transport';
-  if (/grocery|walmart|costco|whole foods|trader joe|kroger|safeway|food/.test(n)) return 'Food';
+  if (/netflix|spotify|hulu|disney|apple|amazon prime|youtube|hbo|paramount|peacock|sling|tidal|stan|binge/.test(n)) return 'Subscriptions';
+  if (/gym|fitness|planet fitness|anytime fitness|crossfit|health fund|medibank|bupa|ahm/.test(n)) return 'Health';
+  if (/rent|mortgage|landlord|property|real estate/.test(n)) return 'Housing';
+  if (/electric|energy|gas|water|sewage|internet|telstra|optus|tpg|vodafone|aussie broadband|phone|broadband|origin|agl/.test(n)) return 'Utilities';
+  if (/insurance|geico|progressive|allstate|nrma|racv|aami|budget direct|real insurance/.test(n)) return 'Insurance';
+  if (/uber|lyft|transit|metro|bus|parking|fuel|petrol|bp|shell|caltex|ampol|7-eleven/.test(n)) return 'Transport';
+  if (/grocery|woolworths|coles|aldi|iga|costco|whole foods|trader joe|kroger|safeway|food/.test(n)) return 'Food';
   return 'Other';
 }
 
@@ -121,7 +113,6 @@ function stddev(arr) {
 }
 
 function analyzeRecurring(transactions) {
-  // Group by cleaned description
   const groups = {};
   for (const tx of transactions) {
     const key = cleanDescription(tx.description);
@@ -134,7 +125,6 @@ function analyzeRecurring(transactions) {
   for (const [key, txs] of Object.entries(groups)) {
     if (txs.length < 2) continue;
 
-    // Parse and sort dates
     const dated = txs
       .map(t => ({ ...t, parsedDate: normalizeDate(t.date) }))
       .filter(t => t.parsedDate)
@@ -142,34 +132,31 @@ function analyzeRecurring(transactions) {
 
     if (dated.length < 2) continue;
 
-    // Compute intervals in days
     const intervals = [];
     for (let i = 1; i < dated.length; i++) {
       const diff = Math.round((dated[i].parsedDate - dated[i - 1].parsedDate) / 86400000);
       if (diff > 0) intervals.push(diff);
     }
-
     if (intervals.length === 0) continue;
 
     const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
     const sd = stddev(intervals);
 
-    // Consider recurring if stddev < 30% of average (or < 5 days for short intervals)
-    const threshold = Math.max(5, avgInterval * 0.35);
+    // Looser threshold for longer intervals (quarterly/annual vary more)
+    const threshold = Math.max(7, avgInterval * 0.45);
     if (sd > threshold) continue;
 
     const amounts = dated.map(t => t.amount).filter(Boolean);
     const avgAmount = amounts.reduce((a, b) => a + b, 0) / amounts.length;
     const amountVariance = Math.max(...amounts) - Math.min(...amounts);
 
-    // Skip if amount varies too much (> 20%)
-    if (amountVariance > avgAmount * 0.25 && amountVariance > 5) continue;
+    // Allow 30% variance in amounts (some bills vary slightly)
+    if (amountVariance > avgAmount * 0.30 && amountVariance > 10) continue;
 
     const frequency = classifyFrequency(avgInterval);
     const lastDate = dated[dated.length - 1].parsedDate;
     const lastDateStr = lastDate.toISOString().split('T')[0];
 
-    // Confidence: based on occurrences, interval consistency, amount consistency
     let confidence = 50;
     if (dated.length >= 3) confidence += 20;
     if (dated.length >= 5) confidence += 10;
@@ -189,33 +176,51 @@ function analyzeRecurring(transactions) {
     });
   }
 
-  // Sort by confidence desc
   return recurring.sort((a, b) => b.confidence - a.confidence);
 }
 
-
 function parsePDF(text) {
-  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 3);
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
   const transactions = [];
-  for (const line of lines) {
-    const dateMatch = line.match(
-      /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})|(\d{4}[\/\-]\d{2}[\/\-]\d{2})|([A-Z][a-z]{2}\.?\s+\d{1,2},?\s+\d{4})|(\d{1,2}\s+[A-Z][a-z]{2}\.?\s+\d{4})/
-    );
+  const DATE_RE = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}[\/\-]\d{2}[\/\-]\d{2}|\d{1,2}\s+[A-Z][a-z]{2}\s+\d{4}|[A-Z][a-z]{2}\s+\d{1,2},?\s+\d{4})/;
+  const AMOUNT_RE = /(?<!\d)(\d{1,3}(?:,\d{3})*\.\d{2})(?!\d)/g;
+  const NOISE_RE = /\b(CR|DR|CREDIT|DEBIT|OPENING|CLOSING|BALANCE|TOTAL|BROUGHT|FORWARD|CARRIED|OD)\b/gi;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const dateMatch = line.match(DATE_RE);
     if (!dateMatch) continue;
-    const amounts = [...line.matchAll(/(?<![0-9])(\d{1,3}(?:,\d{3})*\.\d{2})(?![0-9])/g)]
+
+    // Combine this line + next 2 for amount hunting
+    const window = [line, lines[i + 1] || '', lines[i + 2] || ''].join(' ');
+    const amounts = [...window.matchAll(AMOUNT_RE)]
       .map(m => parseFloat(m[1].replace(/,/g, '')))
-      .filter(n => n > 0.5 && n < 99999);
+      .filter(n => n >= 0.50 && n < 100000);
+
     if (amounts.length === 0) continue;
+
+    // Take smallest amount — balance is usually the largest number on the line
+    const txAmount = amounts.length === 1 ? amounts[0] : Math.min(...amounts);
+
     let desc = line
       .replace(dateMatch[0], '')
-      .replace(/(?<![0-9])(\d{1,3}(?:,\d{3})*\.\d{2})(?![0-9])/g, '')
-      .replace(/\b(CR|DR|CREDIT|DEBIT|OPENING|CLOSING|BALANCE|TOTAL|BROUGHT|FORWARD|CARRIED)\b/gi, '')
-      .replace(/[$£€+\-]/g, ' ')
+      .replace(AMOUNT_RE, '')
+      .replace(NOISE_RE, '')
+      .replace(/[+\-$£€]/g, ' ')
       .replace(/\s{2,}/g, ' ')
       .trim();
+
+    // If description too short, try next line
+    if (desc.length < 3 && lines[i + 1] && !lines[i + 1].match(DATE_RE)) {
+      const next = lines[i + 1].replace(AMOUNT_RE, '').replace(NOISE_RE, '').trim();
+      if (next.length > 2) desc = next;
+    }
+
     if (!desc || desc.length < 2) continue;
-    transactions.push({ date: dateMatch[0].trim(), description: desc, amount: amounts[amounts.length - 1] });
+
+    transactions.push({ date: dateMatch[0].trim(), description: desc, amount: txAmount });
   }
+
   return transactions;
 }
 

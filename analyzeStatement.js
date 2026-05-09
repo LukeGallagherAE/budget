@@ -100,7 +100,9 @@ const MERCHANT_MAP = [
   { pattern: /\bf45\b/i, name: 'F45', category: 'Health' },
   { pattern: /crossfit/i, name: 'CrossFit', category: 'Health' },
   { pattern: /crunch\s*fitness/i, name: 'Crunch Fitness', category: 'Health' },
-  // Transport / Fuel / Tolls
+  // Transport / Public transit / Fuel / Tolls
+  { pattern: /transportfornsw|\bopal\b|transport\s*(for\s*)?nsw/i, name: 'Transport for NSW', category: 'Transport' },
+  { pattern: /tfl\s*(travel|ch|go|pay)|tfl\.gov\.uk|transport\s*(for\s*)?london/i, name: 'Transport for London', category: 'Transport' },
   { pattern: /linkt|e-way\s*toll|roam\s*express|etoll/i, name: 'Linkt', category: 'Transport' },
   { pattern: /coles\s*express|shell/i, name: 'Shell/Coles Express', category: 'Transport' },
   { pattern: /\bbp\b/i, name: 'BP', category: 'Transport' },
@@ -191,30 +193,40 @@ function normalizeDate(str) {
 }
 
 function cleanDescription(desc) {
-  return desc
+  const cleaned = desc
     // Strip CBA Direct Debit reference: "Direct Debit 408856 Merchant Name"
     .replace(/^direct\s+debit\s+\d+\s+/gi, '')
-    // Strip common bank prefixes / noise chars
-    .replace(/^(sp\s*\*|sq\s*\*|tst\*|recurring\s+|subscription\s+)/gi, '')
+    // Strip payment processor prefixes: SQ*, SMP*, LSP*, ZLR*, DD*, SP*, TST*, etc.
+    .replace(/^[a-z]{2,4}\s*\*/gi, '')
     .replace(/\*/g, ' ')
-    // Strip alphanumeric transaction codes like "P3ACEFB18C" (mixed letters+digits, 6+ chars)
-    .replace(/\s+[A-Z][A-Z0-9]{5,}\b/g, '')
-    .replace(/\s+\d[A-Z0-9]{5,}\b/g, '')
-    // Strip phone numbers
+    .replace(/^(recurring\s+|subscription\s+)/gi, '')
+    // Strip MIXED alphanumeric codes only (contain both letters AND digits, 6+ chars)
+    // e.g. "P3ACEFB18C" is stripped, but "SYDNEY" or "AUSTRA" are NOT
+    .replace(/\s+([A-Z0-9]{6,})\b/g, (m, tok) =>
+      /[A-Za-z]/.test(tok) && /\d/.test(tok) ? '' : m)
+    // Strip phone numbers and standalone reference numbers
     .replace(/\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b/g, '')
-    // Strip standalone reference numbers (6+ digits)
     .replace(/\s+\d{6,}/g, '')
+    .replace(/\s+\d{4,5}\b/g, '')   // strip 4-5 digit store numbers (e.g. "WOOLWORTHS 1063")
     .replace(/\s+#\w+/g, '')
     .replace(/\s+REF\w*/gi, '')
-    // Strip Australian city/state/country suffixes (e.g. "SYDNEY NS AUS", "AU AUS", "AUSTRALIA")
-    .replace(/\s+(?:SYDNEY|MELBOURNE|BRISBANE|PERTH|ADELAIDE|CANBERRA|DARWIN|HOBART|GOLD\s+COAST|NEWCASTLE|WOLLONGONG)\s+(?:[A-Z]{2,3}\s+)?(?:AUS?)\s*$/gi, '')
-    .replace(/\s+(?:NSW|VIC|QLD|WA|SA|TAS|NT|ACT|NS|VI)\s+AUS?\s*$/gi, '')
+    // Strip trailing location / country suffixes
+    // State+country: "NS AUS", "NSW AU", "VI AUS", "02 AUS" etc.
+    .replace(/\s+(?:\d{2}|NSW|VIC|QLD|WA|SA|TAS|NT|ACT|NS|VI)\s+AUS?\s*$/gi, '')
+    // City+optional-state+country: "SYDNEY NS AUS", "FRENCHS FORES AUS"
+    .replace(/\s+[A-Z][A-Z\s]{3,20}\s+(?:NS|VI|NSW|VIC|QLD|AU)\s+AUS?\s*$/gi, '')
+    .replace(/\s+[A-Z][A-Z\s]{3,20}\s+AUS?\s*$/gi, '')
     .replace(/\s+AUSTRALIA\s*$/gi, '')
     .replace(/\s+(?:AU|AUS)\s+(?:AU|AUS)\s*$/gi, '')
-    .replace(/\s+(?:AU|AUS|US|USA|GB|UK)\s*$/gi, '')
+    .replace(/\s+(?:AU|AUS|US|USA|GB|UK|DE|DEU|GBR)\s*$/gi, '')
     .replace(/\s{2,}/g, ' ')
     .trim()
     .toUpperCase();
+
+  // Normalize to canonical merchant name for consistent grouping.
+  // All "WOOLWORTHS 1573", "WOOLWORTHS 1262" etc. collapse into one key: "WOOLWORTHS".
+  const merchant = identifyMerchant(cleaned);
+  return merchant ? merchant.name.toUpperCase() : cleaned;
 }
 
 function guessCategory(name) {
@@ -228,7 +240,7 @@ function guessCategory(name) {
   if (/uber|lyft|transit|metro|bus|parking|fuel|petrol|toll/.test(n)) return 'Transport';
   if (/grocery|supermarket|food|cafe|restaurant/.test(n)) return 'Food';
   if (/game|gaming|cinema|theatre|entertainment/.test(n)) return 'Entertainment';
-  if (/subscription|streaming|software|app\b/.test(n)) return 'Subscriptions';
+  if (/subscription|streaming|software/.test(n)) return 'Subscriptions';
   return 'Other';
 }
 
@@ -318,15 +330,15 @@ function analyzeRecurring(transactions) {
 
 function parsePDF(text) {
   // ── CBA (Commonwealth Bank Australia) statement format ─────────────────────
-  // Transaction lines start with "DD Mon" (e.g. "01 Sep") — year only on the
-  // opening balance line. Each transaction spans 2-3 lines:
-  //   Line 1: DD Mon  DESCRIPTION TEXT
-  //   Line 2: (optional) Card xxNNNN
-  //   Line 3: Value Date DD/MM/YYYY  AMOUNT  BALANCE  CR
-  // OR for direct debits/simple transactions:
-  //   Line 1: DD Mon  DESCRIPTION TEXT
-  //   Line 2: DESCRIPTION CONTINUED  AMOUNT  BALANCE  CR
-  // The transaction amount is always the FIRST of the two numbers before CR.
+  // pdf-parse concatenates columns, producing lines like:
+  //   "01 MarSQ *EVOLVE WAHROONGA Wahroonga NS AUS"   (date + desc, no space)
+  //   "Card xx3744"
+  //   "Value Date: 28/02/202510.71$$6,991.68CR"       (debit: AMOUNT$$BALANCE CR)
+  //   "Value Date: 27/02/20259.56($6,982.12CR"         (debit: AMOUNT($BALANCE CR)
+  //   "Value Date: 07/03/2025$53.00$3,754.94CR"        (credit refund: $AMOUNT$BALANCE)
+  // Direct debit / transfer lines omit the Card / Value Date lines:
+  //   "06 MarDirect Debit 408856 Linkt Sydney"
+  //   "50050394672420.00($1,412.25CR"
   // ──────────────────────────────────────────────────────────────────────────
 
   const MONTH_NUM = {
@@ -334,24 +346,28 @@ function parsePDF(text) {
     jul:'07', aug:'08', sep:'09', oct:'10', nov:'11', dec:'12',
   };
 
-  // Matches start of a transaction line: "DD Mon" with optional year
-  const DATE_LINE_RE = /^(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)(?:\s+(\d{4}))?\s*(.*)/i;
+  // "DD Mon" with optional year: "01 Mar2025 ..." or "01 Mar..."
+  // Year restricted to 20xx and must be followed by a space to avoid grabbing
+  // description reference numbers like "6481_WESTFIELD" or "41260240 Jamie Oliver"
+  const DATE_LINE_RE = /^(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s*(20\d{2}(?=\s))?\s*(.*)/i;
 
-  // Matches "AMOUNT  BALANCE  CR" at end of line (the amount line)
-  const AMT_BAL_RE = /(\d{1,3}(?:,\d{3})*\.\d{2})\s+\d{1,3}(?:,\d{3})*\.\d{2}\s+CR\s*$/i;
+  // CBA debit amount pattern: AMOUNT immediately followed by ($ or $$ then BALANCE then CR
+  // The negative lookbehind (?<!\$) ensures we don't match credit lines where $ precedes AMOUNT
+  const DEBIT_RE = /(?<!\$)(\d{1,3}(?:,\d{3})*\.\d{2})[\(\$]{1,2}([\d,]+\.\d{2})CR\s*$/i;
 
-  // Lines to skip entirely (no transaction data)
+  // "Card xxNNNN" lines — skip entirely (no description, no amount needed)
   const CARD_LINE_RE = /^card\s+xx\d+/i;
-  const VALUE_DATE_RE = /^value\s+date\s+\d{1,2}\/\d{2}\/\d{4}/i;
 
-  // Skip income / credit transactions (we only want expenses / debits)
+  // "Value Date: DD/MM/YYYY..." lines — amount is on this line
+  const VALUE_DATE_RE = /^value\s+date[:\s]/i;
+
+  // Skip income / credit transactions (we only want outgoing expenses)
   const SKIP_DESC_RE = /^(opening\s+balance|closing\s+balance|fast\s+transfer\s+from\b|transfer\s+from\b|direct\s+credit\b|cash\s+deposit\b|interest\s+earned|salary|wages?\b)/i;
 
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
   const transactions = [];
 
   let currentYear = new Date().getFullYear();
-  // Pending transaction state
   let state = null; // { date: 'YYYY-MM-DD', descParts: string[], amount: number|null }
 
   function flush() {
@@ -369,18 +385,18 @@ function parsePDF(text) {
     const dateMatch = line.match(DATE_LINE_RE);
 
     if (dateMatch) {
-      flush(); // save previous transaction before starting new one
+      flush();
       const [, day, monStr, yearStr, rest] = dateMatch;
       if (yearStr) currentYear = parseInt(yearStr, 10);
       const mon = MONTH_NUM[monStr.toLowerCase()];
       const date = `${currentYear}-${mon}-${day.padStart(2, '0')}`;
       state = { date, descParts: [], amount: null };
 
-      // Check if the rest of this line already has AMOUNT BALANCE CR
-      const amtMatch = rest && rest.match(AMT_BAL_RE);
+      // Amount sometimes lives on the same date line (e.g. "Transfer to xx9318 CommBank app20.00($2,064.33CR")
+      const amtMatch = rest && rest.match(DEBIT_RE);
       if (amtMatch) {
         state.amount = parseFloat(amtMatch[1].replace(/,/g, ''));
-        const descPart = rest.replace(AMT_BAL_RE, '').trim();
+        const descPart = rest.replace(DEBIT_RE, '').trim();
         if (descPart) state.descParts.push(descPart);
         flush();
       } else if (rest && rest.trim()) {
@@ -389,38 +405,38 @@ function parsePDF(text) {
       continue;
     }
 
-    if (!state) continue; // haven't seen a date line yet
+    if (!state) continue; // page headers and other noise — state is null between transactions
 
-    // Skip card reference lines — they contain no useful description or amount
-    if (CARD_LINE_RE.test(line)) continue;
+    if (CARD_LINE_RE.test(line)) continue; // "Card xx3744 AUD 53.00" — skip
 
-    // Value Date line — contains the transaction amount but description is just "Value Date DD/MM/YYYY"
     if (VALUE_DATE_RE.test(line)) {
-      const amtMatch = line.match(AMT_BAL_RE);
+      // Strip "Value Date: DD/MM/YYYY" prefix — the year digits concatenate directly into
+      // the amount (e.g. "...202510.71$$..." → strip prefix → "10.71$$...")
+      const amountPart = line.replace(/^value\s+date[:\s]+\d{1,2}\/\d{2}\/\d{4}/i, '');
+      // Debits: amount starts immediately (e.g. "10.71$$6,991.68CR")
+      // Credits: start with "$" (e.g. "$53.00$3,754.94CR") — skip those
+      const amtMatch = amountPart.match(/^(\d{1,3}(?:,\d{3})*\.\d{2})[\(\$]/i);
       if (amtMatch) state.amount = parseFloat(amtMatch[1].replace(/,/g, ''));
-      flush();
+      flush(); // Value Date always ends the transaction block
       continue;
     }
 
-    // Continuation line — may have AMOUNT BALANCE CR at end
-    const amtMatch = line.match(AMT_BAL_RE);
+    // Continuation line (direct debit reference / description overflow)
+    const amtMatch = line.match(DEBIT_RE);
     if (amtMatch) {
       state.amount = parseFloat(amtMatch[1].replace(/,/g, ''));
-      // Any text before the amounts is part of the description
-      const descPart = line.replace(AMT_BAL_RE, '').trim();
-      if (descPart) state.descParts.push(descPart);
+      const descPart = line.replace(DEBIT_RE, '').trim();
+      // Only add non-numeric leftover to description
+      if (descPart && /[a-z]/i.test(descPart)) state.descParts.push(descPart);
       flush();
     } else {
-      // Pure description continuation
       state.descParts.push(line);
     }
   }
 
-  flush(); // flush the last pending transaction
+  flush();
 
   // ── Fallback: generic parser for non-CBA PDFs ──────────────────────────────
-  // If we found no transactions with the CBA parser, fall back to a generic
-  // approach that looks for any line with a recognisable date and a dollar amount.
   if (transactions.length === 0) {
     const GENERIC_DATE_RE = /\b(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}[\/\-]\d{2}[\/\-]\d{2})\b/;
     const GENERIC_AMT_RE = /(?<!\d)(\d{1,3}(?:,\d{3})*\.\d{2})(?!\d)/g;
@@ -428,12 +444,11 @@ function parsePDF(text) {
       const line = lines[i];
       const dMatch = line.match(GENERIC_DATE_RE);
       if (!dMatch) continue;
-      const window = [line, lines[i + 1] || '', lines[i + 2] || ''].join(' ');
-      const amounts = [...window.matchAll(GENERIC_AMT_RE)]
+      const ctx = [line, lines[i + 1] || '', lines[i + 2] || ''].join(' ');
+      const amounts = [...ctx.matchAll(GENERIC_AMT_RE)]
         .map(m => parseFloat(m[1].replace(/,/g, '')))
         .filter(n => n >= 0.50 && n < 100000);
       if (amounts.length === 0) continue;
-      const txAmount = amounts[0];
       const desc = line
         .replace(dMatch[0], '')
         .replace(GENERIC_AMT_RE, '')
@@ -441,7 +456,7 @@ function parsePDF(text) {
         .replace(/\s{2,}/g, ' ')
         .trim();
       if (!desc || desc.length < 2) continue;
-      transactions.push({ date: dMatch[0], description: desc, amount: txAmount });
+      transactions.push({ date: dMatch[0], description: desc, amount: amounts[0] });
     }
   }
 

@@ -38,7 +38,7 @@ const MERCHANT_MAP = [
   { pattern: /nordvpn|expressvpn|surfshark/i, name: 'VPN', category: 'Subscriptions' },
   // Gaming
   { pattern: /nintendo/i, name: 'Nintendo', category: 'Entertainment' },
-  { pattern: /playstation|psn\b|sony\s*interactive/i, name: 'PlayStation', category: 'Entertainment' },
+  { pattern: /play\s*station|psn|sony\s*interactive/i, name: 'PlayStation', category: 'Entertainment' },
   { pattern: /\bxbox\b|microsoft\s*store/i, name: 'Xbox', category: 'Entertainment' },
   { pattern: /\bsteam\b/i, name: 'Steam', category: 'Entertainment' },
   { pattern: /epic\s*games/i, name: 'Epic Games', category: 'Entertainment' },
@@ -86,7 +86,7 @@ const MERCHANT_MAP = [
   { pattern: /comminsure/i, name: 'CommInsure', category: 'Insurance' },
   // Health insurance
   { pattern: /medibank/i, name: 'Medibank', category: 'Health' },
-  { pattern: /\bbupa\b/i, name: 'Bupa', category: 'Health' },
+  { pattern: /\bbupa/i, name: 'Bupa', category: 'Health' },
   { pattern: /\bhcf\b/i, name: 'HCF', category: 'Health' },
   { pattern: /\bahm\b/i, name: 'AHM', category: 'Health' },
   { pattern: /\bnib\b/i, name: 'NIB', category: 'Health' },
@@ -194,8 +194,12 @@ function normalizeDate(str) {
 
 function cleanDescription(desc) {
   const cleaned = desc
-    // Strip CBA Direct Debit reference: "Direct Debit 408856 Merchant Name"
-    .replace(/^direct\s+debit\s+\d+\s+/gi, '')
+    // Split CamelCase / PascalCase into spaced words so merchant patterns match correctly.
+    // Needed for Feb-2026 CBA format where PDF encoding strips spaces:
+    // "BupaAustralia" → "Bupa Australia", "PlayStationNetwork" → "Play Station Network"
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    // Strip CBA Direct Debit reference: "Direct Debit 408856 Merchant Name" or "DirectDebit408856MerchantName"
+    .replace(/^direct\s*debit\s*\d+\s*/gi, '')
     // Strip payment processor prefixes: SQ*, SMP*, LSP*, ZLR*, DD*, SP*, TST*, etc.
     .replace(/^[a-z]{2,4}\s*\*/gi, '')
     .replace(/\*/g, ' ')
@@ -219,6 +223,10 @@ function cleanDescription(desc) {
     .replace(/\s+AUSTRALIA\s*$/gi, '')
     .replace(/\s+(?:AU|AUS)\s+(?:AU|AUS)\s*$/gi, '')
     .replace(/\s+(?:AU|AUS|US|USA|GB|UK|DE|DEU|GBR)\s*$/gi, '')
+    // No-space suffix strip: handles "BUPAAUSTRALIA", "SPOTIFYAUSTRALIA" etc.
+    // (no-space PDF format concatenates country name directly to merchant name)
+    .replace(/AUSTRALIA$/i, '')
+    .replace(/(?:AUS|USA|GBR)$/i, '')
     .replace(/\s{2,}/g, ' ')
     .trim()
     .toUpperCase();
@@ -329,16 +337,23 @@ function analyzeRecurring(transactions) {
 }
 
 function parsePDF(text) {
-  // ── CBA (Commonwealth Bank Australia) statement format ─────────────────────
-  // pdf-parse concatenates columns, producing lines like:
-  //   "01 MarSQ *EVOLVE WAHROONGA Wahroonga NS AUS"   (date + desc, no space)
+  // ── CBA (Commonwealth Bank Australia) — two known PDF encodings ────────────
+  //
+  // Format A (older — e.g. Aug 2025): spaces preserved, separator between amounts:
+  //   "01 MarSQ *EVOLVE WAHROONGA Wahroonga NS AUS"
   //   "Card xx3744"
-  //   "Value Date: 28/02/202510.71$$6,991.68CR"       (debit: AMOUNT$$BALANCE CR)
-  //   "Value Date: 27/02/20259.56($6,982.12CR"         (debit: AMOUNT($BALANCE CR)
-  //   "Value Date: 07/03/2025$53.00$3,754.94CR"        (credit refund: $AMOUNT$BALANCE)
-  // Direct debit / transfer lines omit the Card / Value Date lines:
+  //   "Value Date: 28/02/202510.71$$6,991.68CR"    (debit AMOUNT$$BALANCE CR)
+  //   "Value Date: 27/02/20259.56($6,982.12CR"      (debit AMOUNT($BALANCE CR)
+  //   "Value Date: 07/03/2025$53.00$3,754.94CR"     (credit $AMOUNT$BALANCE CR)
   //   "06 MarDirect Debit 408856 Linkt Sydney"
   //   "50050394672420.00($1,412.25CR"
+  //
+  // Format B (newer — e.g. Feb 2026): ALL spaces stripped everywhere:
+  //   "02SepSPDMSENGINEERINGMONTALBERTN VI AUS"
+  //   "Cardxx3744"
+  //   "ValueDate30/08/2025808.001,361.42CR"         (debit: no separator between amounts)
+  //   "DirectDebit408856LinktSydney"
+  //   "FastTransferFromMrLukeThomasGallag"          (income — SKIP_DESC_RE catches this)
   // ──────────────────────────────────────────────────────────────────────────
 
   const MONTH_NUM = {
@@ -346,23 +361,25 @@ function parsePDF(text) {
     jul:'07', aug:'08', sep:'09', oct:'10', nov:'11', dec:'12',
   };
 
-  // "DD Mon" with optional year: "01 Mar2025 ..." or "01 Mar..."
-  // Year restricted to 20xx and must be followed by a space to avoid grabbing
+  // "DD Mon" with optional year — handles both spaced ("01 Mar") and compact ("01Sep") formats.
+  // Year restricted to 20xx and must be followed by a non-digit to avoid grabbing
   // description reference numbers like "6481_WESTFIELD" or "41260240 Jamie Oliver"
-  const DATE_LINE_RE = /^(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s*(20\d{2}(?=\s))?\s*(.*)/i;
+  const DATE_LINE_RE = /^(\d{1,2})\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s*(20\d{2}(?=[\s\D]))?\s*(.*)/i;
 
-  // CBA debit amount pattern: AMOUNT immediately followed by ($ or $$ then BALANCE then CR
-  // The negative lookbehind (?<!\$) ensures we don't match credit lines where $ precedes AMOUNT
-  const DEBIT_RE = /(?<!\$)(\d{1,3}(?:,\d{3})*\.\d{2})[\(\$]{1,2}([\d,]+\.\d{2})CR\s*$/i;
+  // CBA debit amount pattern: AMOUNT then optional separator ($ or ($) then BALANCE then CR.
+  // Sep-2026 statements strip all spaces so the separator disappears → use [\(\$]* (zero+).
+  // The negative lookbehind (?<!\$) skips credit lines where $ precedes AMOUNT.
+  const DEBIT_RE = /(?<!\$)(\d{1,3}(?:,\d{3})*\.\d{2})[\(\$]*([\d,]+\.\d{2})CR\s*$/i;
 
-  // "Card xxNNNN" lines — skip entirely (no description, no amount needed)
-  const CARD_LINE_RE = /^card\s+xx\d+/i;
+  // "Card xxNNNN" / "Cardxx3744" lines — skip entirely
+  const CARD_LINE_RE = /^card\s*xx\d+/i;
 
-  // "Value Date: DD/MM/YYYY..." lines — amount is on this line
-  const VALUE_DATE_RE = /^value\s+date[:\s]/i;
+  // "Value Date: DD/MM/YYYY..." / "ValueDate30/08/2025..." — amount is on this line
+  const VALUE_DATE_RE = /^value\s*date[:\s]*/i;
 
-  // Skip income / credit transactions (we only want outgoing expenses)
-  const SKIP_DESC_RE = /^(opening\s+balance|closing\s+balance|fast\s+transfer\s+from\b|transfer\s+from\b|direct\s+credit\b|cash\s+deposit\b|interest\s+earned|salary|wages?\b)/i;
+  // Skip income / credit transactions (we only want outgoing expenses).
+  // Uses \s* between words to match both spaced and compact (no-space) formats.
+  const SKIP_DESC_RE = /^(opening\s*balance|closing\s*balance|fast\s*transfer\s*from|transfer\s*from|direct\s*credit|cash\s*deposit|interest\s*earned|salary|wages?)/i;
 
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
   const transactions = [];
@@ -410,13 +427,33 @@ function parsePDF(text) {
     if (CARD_LINE_RE.test(line)) continue; // "Card xx3744 AUD 53.00" — skip
 
     if (VALUE_DATE_RE.test(line)) {
-      // Strip "Value Date: DD/MM/YYYY" prefix — the year digits concatenate directly into
-      // the amount (e.g. "...202510.71$$..." → strip prefix → "10.71$$...")
-      const amountPart = line.replace(/^value\s+date[:\s]+\d{1,2}\/\d{2}\/\d{4}/i, '');
-      // Debits: amount starts immediately (e.g. "10.71$$6,991.68CR")
+      // Strip "Value Date: DD/MM/YYYY" / "ValueDate30/08/2025" prefix so the year digits
+      // don't get absorbed into the amount (e.g. "...202510.71$$..." → "10.71$$...").
+      const amountPart = line.replace(/^value\s*date[:\s]*\d{1,2}\/\d{2}\/\d{4}/i, '');
+
+      // Extract the year from the Value Date and retroactively correct the transaction date.
+      // This is critical for statements where date lines have no year ("01Sep") — we know
+      // the correct year only once we see the Value Date line a few lines later.
+      const vdDateMatch = line.match(/value\s*date[:\s]*(\d{1,2})\/(\d{2})\/(\d{4})/i);
+      if (vdDateMatch && state) {
+        const vdYear  = parseInt(vdDateMatch[3], 10);
+        const vdMonth = parseInt(vdDateMatch[2], 10);
+        currentYear = vdYear;
+        // Retroactively fix the date we stored when we first saw the date line.
+        // If the transaction month is less than the value-date month, the transaction
+        // rolled into the next year (e.g. VD = 31 Dec 2025, TX = 01 Jan 2026).
+        const parts   = state.date.split('-');
+        const txMonth = parseInt(parts[1], 10);
+        const txYear  = txMonth < vdMonth ? vdYear + 1 : vdYear;
+        state.date = `${txYear}-${parts[1]}-${parts[2]}`;
+      }
+
+      // Debits: amount starts with digits immediately (e.g. "10.71$$..." or "808.001,361.42CR")
       // Credits: start with "$" (e.g. "$53.00$3,754.94CR") — skip those
-      const amtMatch = amountPart.match(/^(\d{1,3}(?:,\d{3})*\.\d{2})[\(\$]/i);
-      if (amtMatch) state.amount = parseFloat(amtMatch[1].replace(/,/g, ''));
+      if (!amountPart.startsWith('$')) {
+        const amtMatch = amountPart.match(/^(\d{1,3}(?:,\d{3})*\.\d{2})/);
+        if (amtMatch) state.amount = parseFloat(amtMatch[1].replace(/,/g, ''));
+      }
       flush(); // Value Date always ends the transaction block
       continue;
     }

@@ -102,7 +102,7 @@ function MainApp() {
         ) : tab === 'calendar' ? (
           <CalendarView expenses={expenses} />
         ) : (
-          <ImportView onImported={loadExpenses} />
+          <ImportView expenses={expenses} onImported={loadExpenses} />
         )}
       </main>
 

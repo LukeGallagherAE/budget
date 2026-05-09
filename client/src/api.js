@@ -36,3 +36,16 @@ export async function analyzeStatement(formData) {
   if (!r.ok) throw new Error('Failed to analyze statement');
   return r.json();
 }
+
+export async function getEmailStatus() {
+  const r = await fetch(`${BASE}/email/status`, OPTS);
+  if (!r.ok) throw new Error('Failed to check email status');
+  return r.json();
+}
+
+export async function scanEmails() {
+  const r = await fetch(`${BASE}/email/scan`, { ...OPTS, method: 'POST' });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || 'Scan failed');
+  return data;
+}

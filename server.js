@@ -9,6 +9,7 @@ const jwt = require('jsonwebtoken');
 const { pool, initDB } = require('./database');
 const pdfParse = require('pdf-parse');
 const { parseCSV, analyzeRecurring, parsePDF } = require('./analyzeStatement');
+const { scanInvoiceEmails } = require('./emailScanner');
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -207,6 +208,33 @@ app.post('/api/import', requireAuth, upload.single('file'), async (req, res) => 
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ── Email invoice scanning ────────────────────────────────────────────────────
+
+app.post('/api/email/scan', requireAuth, async (req, res) => {
+  try {
+    const result = await scanInvoiceEmails();
+    res.json(result);
+  } catch (e) {
+    // Surface config errors cleanly so the frontend can show setup instructions
+    if (e.message === 'GMAIL_NOT_CONFIGURED') {
+      return res.status(503).json({ error: 'GMAIL_NOT_CONFIGURED' });
+    }
+    if (e.message === 'ANTHROPIC_KEY_MISSING') {
+      return res.status(503).json({ error: 'ANTHROPIC_KEY_MISSING' });
+    }
+    console.error('Email scan error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Returns whether Gmail + Anthropic are configured (so the UI can show setup vs scan)
+app.get('/api/email/status', requireAuth, (req, res) => {
+  res.json({
+    gmail: !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD),
+    anthropic: !!process.env.ANTHROPIC_API_KEY,
+  });
 });
 
 // ── Static frontend (production) ─────────────────────────────────────────────

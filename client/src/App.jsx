@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { LayoutDashboard, Calendar, Upload, Plus, LogOut } from 'lucide-react';
+import { LayoutDashboard, Calendar, Upload, Mail, Plus, LogOut } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import AuthPage from './pages/AuthPage.jsx';
 import Dashboard from './components/Dashboard.jsx';
 import CalendarView from './components/CalendarView.jsx';
 import ImportView from './components/ImportView.jsx';
+import EmailView from './components/EmailView.jsx';
 import ExpenseModal from './components/ExpenseModal.jsx';
 import { fetchExpenses } from './api.js';
 
@@ -47,8 +48,9 @@ function MainApp() {
 
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
-    { id: 'calendar', label: 'Calendar', Icon: Calendar },
-    { id: 'import', label: 'Import', Icon: Upload },
+    { id: 'calendar',  label: 'Calendar',  Icon: Calendar },
+    { id: 'import',    label: 'Import',    Icon: Upload },
+    { id: 'email',     label: 'Emails',    Icon: Mail },
   ];
 
   return (
@@ -101,8 +103,10 @@ function MainApp() {
           <Dashboard expenses={expenses} onEdit={openEdit} onRefresh={loadExpenses} />
         ) : tab === 'calendar' ? (
           <CalendarView expenses={expenses} />
-        ) : (
+        ) : tab === 'import' ? (
           <ImportView expenses={expenses} onImported={loadExpenses} />
+        ) : (
+          <EmailView expenses={expenses} onImported={loadExpenses} />
         )}
       </main>
 

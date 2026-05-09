@@ -473,28 +473,113 @@ function parsePDF(text) {
 
   flush();
 
-  // ── Fallback: generic parser for non-CBA PDFs ──────────────────────────────
-  if (transactions.length === 0) {
-    const GENERIC_DATE_RE = /\b(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}[\/\-]\d{2}[\/\-]\d{2})\b/;
-    const GENERIC_AMT_RE = /(?<!\d)(\d{1,3}(?:,\d{3})*\.\d{2})(?!\d)/g;
+  // ── Enhanced generic parser — handles any bank PDF ────────────────────────
+  // Triggers when the CBA parser yields < 3 results (likely a non-CBA statement).
+  // Handles: ANZ, Westpac, NAB, Macquarie, ING, Amex, Revolut, Wise, HSBC, etc.
+  //
+  // Common statement row shapes (spaces mark column boundaries):
+  //   "12/03/2025  NETFLIX.COM                     14.99 DR   1,234.56 CR"
+  //   "12 Mar 2025  NETFLIX SYDNEY                  14.99-     1,234.56"
+  //   "12 Mar 2025  NETFLIX                                    14.99    1,234.56"
+  //   "2025-03-12  NETFLIX.COM/BILL                AUD 14.99"
+  //   "12/03/25   EFTPOS 12/03 NETFLIX              14.99      1,234.56-"
+  // ──────────────────────────────────────────────────────────────────────────
+  if (transactions.length < 3) {
+    transactions.length = 0; // discard any false-positive CBA matches
+
+    // --- Date extractors (tried in order; first match wins) ---
+    // Each returns { dateStr, rest } or null.
+    const DATE_EXTRACTORS = [
+      // ISO: 2025-03-12
+      l => { const m = l.match(/^(\d{4}[\/\-]\d{2}[\/\-]\d{2})\s+/); return m ? { dateStr: m[1], rest: l.slice(m[0].length) } : null; },
+      // DD/MM/YYYY or D/M/YY
+      l => { const m = l.match(/^(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\s+/); return m ? { dateStr: m[1], rest: l.slice(m[0].length) } : null; },
+      // DD Mon YYYY  (e.g. "12 Mar 2025")
+      l => { const m = l.match(/^(\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{2,4})\s+/i); return m ? { dateStr: m[1], rest: l.slice(m[0].length) } : null; },
+      // DD Mon  (no year — e.g. "12 Mar  ")
+      l => { const m = l.match(/^(\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*)\s{2,}/i); return m ? { dateStr: m[1], rest: l.slice(m[0].length) } : null; },
+      // Date appears mid-line after a second date (value date / process date pair)
+      // e.g. "12/03/2025  15/03/2025  NETFLIX  14.99  1,234.56" — use first date
+      l => { const m = l.match(/^(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\s+\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\s+/); return m ? { dateStr: m[1], rest: l.slice(m[0].length).replace(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\s+/, '') } : null; },
+    ];
+
+    const AMT_G = /(?<!\d)(\d{1,3}(?:,\d{3})*\.\d{2})(?!\d)/g;
+
+    // Lines that are definitely not transaction rows
+    const SKIP_LINE_RE = /^\s*(?:date\b|description\b|details\b|narr|debit\b|credit\b|balance\b|withdrawal|deposit|transaction|opening\s+balance|closing\s+balance|total\b|subtotal|page\s*\d+|bsb\b|account\s*(?:name|number|no\.?)|statement\s*(?:date|period|for)|available\s+balance|interest\s+charged|interest\s+earned|annual\s+(?:fee|percentage)|brought\s+forward|carried\s+forward)/i;
+
+    // Skip income / credit transactions (we only want debits / expenses)
+    const SKIP_DESC_G = /^(?:salary|payroll|wages|opening\s+balance|closing\s+balance|interest\s+(?:earned|paid|credit)|refund\s+from|payment\s+received|direct\s+credit|transfer\s+from|deposit\b|credit\s+card\s+payment|bank\s+credit|employer|centrelink|ato\s+refund)/i;
+
+    // Positive debit indicators (e.g. ANZ uses "Dr" suffix)
+    const DEBIT_IND_RE = /\bDr\b|\bDBT\b|\bdebit\b|\bpurchase\b/i;
+    // Credit indicators (income — skip unless there's also a debit indicator)
+    const CREDIT_IND_RE = /\bCr\b|\bCRT\b|\bcredit\b/i;
+
+    const genericTxns = [];
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      const dMatch = line.match(GENERIC_DATE_RE);
-      if (!dMatch) continue;
-      const ctx = [line, lines[i + 1] || '', lines[i + 2] || ''].join(' ');
-      const amounts = [...ctx.matchAll(GENERIC_AMT_RE)]
+      if (SKIP_LINE_RE.test(line)) continue;
+
+      // Extract date from start of line
+      let dateStr = null, rest = line;
+      for (const ex of DATE_EXTRACTORS) {
+        const r = ex(line);
+        if (r) { dateStr = r.dateStr; rest = r.rest; break; }
+      }
+      if (!dateStr) continue;
+
+      // Skip if description matches income patterns
+      if (SKIP_DESC_G.test(rest.trim())) continue;
+
+      const hasDr = DEBIT_IND_RE.test(rest);
+      const hasCr = CREDIT_IND_RE.test(rest);
+      // Pure credit lines (income) — skip
+      if (hasCr && !hasDr) continue;
+
+      // Collect amounts from this line + up to 2 continuation lines
+      // (stop if next line starts with a date, i.e. is a new transaction)
+      const ctxLines = [rest];
+      for (let j = 1; j <= 2; j++) {
+        const next = lines[i + j];
+        if (!next) break;
+        if (DATE_EXTRACTORS.some(ex => ex(next))) break; // new transaction
+        if (SKIP_LINE_RE.test(next)) break;
+        ctxLines.push(next);
+      }
+      const ctx = ctxLines.join(' ');
+      const amounts = [...ctx.matchAll(AMT_G)]
         .map(m => parseFloat(m[1].replace(/,/g, '')))
-        .filter(n => n >= 0.50 && n < 100000);
+        .filter(n => n >= 0.50 && n < 500000);
       if (amounts.length === 0) continue;
-      const desc = line
-        .replace(dMatch[0], '')
-        .replace(GENERIC_AMT_RE, '')
-        .replace(/\b(CR|DR|CREDIT|DEBIT|OPENING|CLOSING|BALANCE)\b/gi, '')
+
+      // Description: everything on the date line except amounts and indicator words
+      let desc = rest
+        .replace(AMT_G, '')
+        .replace(/\b(?:CR|DR|DBT|CRT|CREDIT|DEBIT|PURCHASE)\b/gi, '')
+        .replace(/\$\s*/g, '')
+        .replace(/\bAUD\b/gi, '')
+        .replace(/[-+]\s*$/g, '')   // trailing minus (Westpac debit marker)
         .replace(/\s{2,}/g, ' ')
         .trim();
+
       if (!desc || desc.length < 2) continue;
-      transactions.push({ date: dMatch[0], description: desc, amount: amounts[0] });
+      if (SKIP_DESC_G.test(desc)) continue;
+
+      // Choose transaction amount: when multiple amounts are present the last is
+      // usually the running balance and the first is the transaction amount.
+      // But if the first is implausibly large (>= 50 000), try the smallest.
+      let amount = amounts[0];
+      if (amounts.length >= 2 && amount >= 50000) {
+        const small = amounts.slice().sort((a, b) => a - b).find(a => a >= 0.50);
+        if (small) amount = small;
+      }
+
+      genericTxns.push({ date: dateStr, description: desc, amount });
     }
+
+    transactions.push(...genericTxns);
   }
 
   return transactions;

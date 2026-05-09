@@ -113,6 +113,12 @@ function MainApp() {
           onSaved={() => { closeModal(); loadExpenses(); }}
         />
       )}
+
+      <footer className="border-t border-gray-800 py-2 text-center">
+        <span className="text-xs text-gray-700">
+          built {new Date(__BUILD_TIME__).toLocaleString('en-AU', { dateStyle: 'medium', timeStyle: 'short' })}
+        </span>
+      </footer>
     </div>
   );
 }

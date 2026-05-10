@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   Mail, ScanLine, CheckCircle, XCircle, AlertCircle, Plus, RefreshCw,
-  Clock, CalendarCheck, TrendingUp, ExternalLink, Info, FileText,
+  Clock, CalendarCheck, TrendingUp, ExternalLink, Info, FileText, ChevronDown, ChevronUp, Repeat,
 } from 'lucide-react';
 import { getEmailStatus, scanEmails, createExpense, updateExpense } from '../api.js';
 
@@ -113,6 +113,7 @@ export default function EmailView({ expenses = [], onImported }) {
   const [emailCount,      setEmailCount]      = useState(null);
   const [edits,           setEdits]           = useState({});
   const [noteOpen,        setNoteOpen]        = useState({});
+  const [bodyOpen,        setBodyOpen]        = useState({});
 
   const getVal = (i, field) => edits[i]?.[field] ?? results[i][field];
   const setVal = (i, field, val) => setEdits(p => ({ ...p, [i]: { ...(p[i] || {}), [field]: val } }));
@@ -131,6 +132,7 @@ export default function EmailView({ expenses = [], onImported }) {
     setSelected({});
     setEdits({});
     setNoteOpen({});
+    setBodyOpen({});
     setScanning(true);
     try {
       const data = await scanEmails();
@@ -261,7 +263,7 @@ export default function EmailView({ expenses = [], onImported }) {
               <button onClick={() => setSelected({})} className="text-gray-400 hover:text-gray-300">Deselect all</button>
               <span className="text-gray-600">·</span>
               <button
-                onClick={() => { setResults(null); setDone(null); setSelected({}); setExtractionErrors([]); setEdits({}); setNoteOpen({}); }}
+                onClick={() => { setResults(null); setDone(null); setSelected({}); setExtractionErrors([]); setEdits({}); setNoteOpen({}); setBodyOpen({}); }}
                 className="text-gray-400 hover:text-gray-300 flex items-center gap-1"
               ><RefreshCw size={10} /> Rescan</button>
             </div>
@@ -383,13 +385,18 @@ export default function EmailView({ expenses = [], onImported }) {
                           <Info size={10} /> Also paid last cycle
                         </span>
                       )}
+                      {/* Occurrences badge — prominent */}
+                      {inv.occurrences > 1 && (
+                        <span className="flex items-center gap-1 text-xs text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-full font-medium">
+                          <Repeat size={10} /> {inv.occurrences}× found
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 flex-wrap">
                       {inv.due_date  && <span>Due: {inv.due_date}</span>}
                       {inv.paid_date && <span>Paid: {inv.paid_date}</span>}
                       {!inv.due_date && !inv.paid_date && inv.email_date && <span>Email: {inv.email_date}</span>}
-                      {inv.occurrences > 1 && <span>{inv.occurrences} emails found</span>}
                       <span className="truncate opacity-60">{inv.from}</span>
                     </div>
 
@@ -403,6 +410,24 @@ export default function EmailView({ expenses = [], onImported }) {
                             {att.size > 0 && <span className="text-blue-400/50">{(att.size / 1024).toFixed(0)}KB</span>}
                           </span>
                         ))}
+                      </div>
+                    )}
+
+                    {/* Email body preview */}
+                    {inv.email_body && (
+                      <div className="mt-2">
+                        <button
+                          onClick={() => setBodyOpen(p => ({ ...p, [i]: !p[i] }))}
+                          className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                        >
+                          {bodyOpen[i] ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                          {bodyOpen[i] ? 'Hide email' : 'Show email'}
+                        </button>
+                        {bodyOpen[i] && (
+                          <pre className="mt-2 text-xs text-gray-400 bg-gray-900/60 rounded-lg px-3 py-2 whitespace-pre-wrap break-words font-sans leading-relaxed max-h-48 overflow-y-auto ring-1 ring-gray-700">
+                            {inv.email_body}
+                          </pre>
+                        )}
                       </div>
                     )}
 

@@ -178,6 +178,7 @@ async function extractInvoices(emails) {
               return d instanceof Date ? d.toISOString().split('T')[0] : null;
             })(),
             attachments: (batch[item.index] || {}).attachments || [],
+            email_body: ((batch[item.index] || {}).body || '').slice(0, 600),
           }));
       } catch (e) {
         const msg = e.status
@@ -221,6 +222,8 @@ function deduplicateInvoices(invoices) {
       has_paid_version: paid.length > 0 && primary.status !== 'paid',
       frequency: inferFrequency(items),
       attachments: [...seenAtts.values()],
+      // Keep body from primary (most relevant: due/upcoming preferred over paid)
+      email_body: primary.email_body || '',
     });
   }
 

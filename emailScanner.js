@@ -9,6 +9,7 @@
 const { ImapFlow } = require('imapflow');
 const { simpleParser } = require('mailparser');
 const Anthropic = require('@anthropic-ai/sdk');
+const pdfParse = require('pdf-parse');
 
 function classifyFrequency(avgDays) {
   if (avgDays <= 1.5)  return 'daily';
@@ -66,11 +67,32 @@ async function fetchInvoiceEmails() {
         const stripped = (parsed.html || '')
           .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
           .replace(/<[^>]+>/g, ' ').replace(/\s{2,}/g, ' ').trim();
+        const bodyText = (plain || stripped).slice(0, 2500);
+
+        // Parse any PDF attachments and append their text
+        const attachmentMeta = [];
+        const pdfTexts = [];
+        for (const att of (parsed.attachments || [])) {
+          const isPdf = att.contentType === 'application/pdf'
+            || (att.filename || '').toLowerCase().endsWith('.pdf');
+          if (!isPdf) continue;
+          attachmentMeta.push({ name: att.filename || 'attachment.pdf', size: att.size || 0 });
+          try {
+            const pdfData = await pdfParse(att.content);
+            pdfTexts.push(pdfData.text.slice(0, 2000));
+          } catch { /* skip unreadable PDFs */ }
+        }
+
+        const fullBody = pdfTexts.length
+          ? bodyText + '\n\n[PDF ATTACHMENT]\n' + pdfTexts.join('\n\n---\n\n')
+          : bodyText;
+
         emails.push({
           subject: parsed.subject || '',
           from: parsed.from?.text || '',
           date: parsed.date || new Date(),
-          body: (plain || stripped).slice(0, 3000),
+          body: fullBody.slice(0, 5000),
+          attachments: attachmentMeta,
         });
       } catch { /* skip malformed */ }
     }
@@ -155,6 +177,7 @@ async function extractInvoices(emails) {
               const d = (batch[item.index] || {}).date;
               return d instanceof Date ? d.toISOString().split('T')[0] : null;
             })(),
+            attachments: (batch[item.index] || {}).attachments || [],
           }));
       } catch (e) {
         const msg = e.status
@@ -187,11 +210,17 @@ function deduplicateInvoices(invoices) {
     const unpaid   = due.length ? due : upcoming;
     const primary  = unpaid.length ? unpaid[0] : paid[0];
 
+    // Merge unique attachments across all email occurrences
+    const allAtts = items.flatMap(it => it.attachments || []);
+    const seenAtts = new Map();
+    for (const a of allAtts) if (!seenAtts.has(a.name)) seenAtts.set(a.name, a);
+
     deduped.push({
       ...primary,
       occurrences: items.length,
       has_paid_version: paid.length > 0 && primary.status !== 'paid',
       frequency: inferFrequency(items),
+      attachments: [...seenAtts.values()],
     });
   }
 

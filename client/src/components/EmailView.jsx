@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   Mail, ScanLine, CheckCircle, XCircle, AlertCircle, Plus, RefreshCw,
-  Clock, CalendarCheck, TrendingUp, ExternalLink, Info,
+  Clock, CalendarCheck, TrendingUp, ExternalLink, Info, FileText,
 } from 'lucide-react';
 import { getEmailStatus, scanEmails, createExpense, updateExpense } from '../api.js';
 
@@ -392,6 +392,19 @@ export default function EmailView({ expenses = [], onImported }) {
                       {inv.occurrences > 1 && <span>{inv.occurrences} emails found</span>}
                       <span className="truncate opacity-60">{inv.from}</span>
                     </div>
+
+                    {/* PDF attachments */}
+                    {inv.attachments?.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {inv.attachments.map((att, j) => (
+                          <span key={j} className="flex items-center gap-1 text-xs text-blue-300 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-full">
+                            <FileText size={10} />
+                            {att.name}
+                            {att.size > 0 && <span className="text-blue-400/50">{(att.size / 1024).toFixed(0)}KB</span>}
+                          </span>
+                        ))}
+                      </div>
+                    )}
 
                     {/* Notes section */}
                     <div className="mt-2">

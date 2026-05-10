@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X } from 'lucide-react';
+import { X, Link } from 'lucide-react';
 import { createExpense, updateExpense } from '../api.js';
 
 const FREQUENCIES = [
@@ -28,6 +28,7 @@ export default function ExpenseModal({ expense, onClose, onSaved }) {
     category: expense?.category ?? 'Other',
     notes: expense?.notes ?? '',
     color: expense?.color ?? '#6366f1',
+    url:   expense?.url   ?? '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -166,6 +167,21 @@ export default function ExpenseModal({ expense, onClose, onSaved }) {
                   style={{ backgroundColor: c }}
                 />
               ))}
+            </div>
+          </div>
+
+          {/* URL */}
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">Link (billing page, invoice URL…)</label>
+            <div className="relative">
+              <Link size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+              <input
+                type="url"
+                value={form.url}
+                onChange={e => set('url', e.target.value)}
+                placeholder="https://"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-8 pr-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors"
+              />
             </div>
           </div>
 

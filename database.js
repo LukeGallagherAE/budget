@@ -37,6 +37,8 @@ async function initDB() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // Add url column if it doesn't exist yet (safe to run on existing DBs)
+  await pool.query(`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS url TEXT DEFAULT ''`);
 }
 
 module.exports = { pool, initDB };

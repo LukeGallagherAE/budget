@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { differenceInDays, parseISO, format } from 'date-fns';
 import {
   Edit2, Trash2, CheckCircle, Clock, CheckSquare, Square, X,
-  LayoutGrid, List, ArrowUpDown, ArrowUp, ArrowDown,
+  LayoutGrid, List, ArrowUpDown, ArrowUp, ArrowDown, ExternalLink,
 } from 'lucide-react';
 import { deleteExpense, payExpense, updateExpense } from '../api.js';
 
@@ -134,22 +134,22 @@ function ExpenseCard({ expense, onEdit, onRefresh, selectMode, isSelected, onTog
   return (
     <div
       onClick={selectMode ? onToggle : undefined}
-      className={`relative bg-gray-900 rounded-2xl p-5 ring-1 flex flex-col gap-3 transition-all
+      className={`bg-gray-900 rounded-2xl p-5 ring-1 flex flex-col gap-3 transition-all
         ${selectMode ? 'cursor-pointer' : 'hover:scale-[1.01]'}
         ${selectMode && isSelected ? 'ring-indigo-500 bg-indigo-950/30' : u.ring}
       `}
     >
-      {selectMode && (
-        <div className="absolute top-3 right-3">
-          {isSelected ? <CheckSquare size={18} className="text-indigo-400" /> : <Square size={18} className="text-gray-600" />}
-        </div>
-      )}
-
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-3 min-w-0">
+          {/* Checkbox sits naturally in the header row */}
+          {selectMode && (
+            isSelected
+              ? <CheckSquare size={16} className="text-indigo-400 flex-shrink-0" />
+              : <Square size={16} className="text-gray-600 flex-shrink-0" />
+          )}
           <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: expense.color }} />
           <div className="min-w-0">
-            <p className="font-semibold text-white truncate pr-6">{expense.name}</p>
+            <p className="font-semibold text-white truncate">{expense.name}</p>
             <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-0.5">
               <InlineSelect
                 value={expense.category}
@@ -180,6 +180,17 @@ function ExpenseCard({ expense, onEdit, onRefresh, selectMode, isSelected, onTog
       </div>
 
       {expense.notes && <p className="text-xs text-gray-500 truncate">{expense.notes}</p>}
+
+      {expense.url && (
+        <a
+          href={expense.url} target="_blank" rel="noopener noreferrer"
+          onClick={e => e.stopPropagation()}
+          className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 truncate w-fit"
+        >
+          <ExternalLink size={11} />
+          {(() => { try { return new URL(expense.url).hostname; } catch { return expense.url; } })()}
+        </a>
+      )}
 
       {!selectMode && (
         <div className="flex items-center gap-2 pt-1 border-t border-gray-800">
@@ -229,7 +240,19 @@ function ExpenseRow({ expense, onEdit, onRefresh, selectMode, isSelected, onTogg
       <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: expense.color }} />
 
       <div className="flex-1 min-w-0">
-        <p className="font-medium text-white text-sm truncate">{expense.name}</p>
+        <div className="flex items-center gap-2 min-w-0">
+          <p className="font-medium text-white text-sm truncate">{expense.name}</p>
+          {expense.url && (
+            <a
+              href={expense.url} target="_blank" rel="noopener noreferrer"
+              onClick={e => e.stopPropagation()}
+              title={expense.url}
+              className="text-indigo-400 hover:text-indigo-300 flex-shrink-0"
+            >
+              <ExternalLink size={12} />
+            </a>
+          )}
+        </div>
         <p className="text-xs text-gray-500 flex items-center gap-0.5">
           <InlineSelect
             value={expense.category}

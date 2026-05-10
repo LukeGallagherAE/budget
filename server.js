@@ -140,12 +140,12 @@ app.get('/api/expenses', requireAuth, async (req, res) => {
 });
 
 app.post('/api/expenses', requireAuth, async (req, res) => {
-  const { name, amount, currency = 'AUD', frequency, interval_days, start_date, category = 'Other', notes = '', color = '#6366f1' } = req.body;
+  const { name, amount, currency = 'AUD', frequency, interval_days, start_date, category = 'Other', notes = '', color = '#6366f1', url = '' } = req.body;
   if (!name || !amount || !frequency || !start_date) return res.status(400).json({ error: 'Missing required fields' });
   try {
     const result = await pool.query(
-      'INSERT INTO expenses (user_id, name, amount, currency, frequency, interval_days, start_date, category, notes, color) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *',
-      [req.user.id, name, amount, currency, frequency, interval_days || null, start_date, category, notes, color]
+      'INSERT INTO expenses (user_id, name, amount, currency, frequency, interval_days, start_date, category, notes, color, url) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *',
+      [req.user.id, name, amount, currency, frequency, interval_days || null, start_date, category, notes, color, url]
     );
     res.json(formatRow(result.rows[0]));
   } catch (e) {
@@ -154,14 +154,14 @@ app.post('/api/expenses', requireAuth, async (req, res) => {
 });
 
 app.put('/api/expenses/:id', requireAuth, async (req, res) => {
-  const { name, amount, currency, frequency, interval_days, start_date, category, notes, color } = req.body;
+  const { name, amount, currency, frequency, interval_days, start_date, category, notes, color, url } = req.body;
   try {
     const existing = await pool.query('SELECT * FROM expenses WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
     if (!existing.rows[0]) return res.status(404).json({ error: 'Not found' });
     const e = existing.rows[0];
     const result = await pool.query(
-      'UPDATE expenses SET name=$1, amount=$2, currency=$3, frequency=$4, interval_days=$5, start_date=$6, category=$7, notes=$8, color=$9 WHERE id=$10 AND user_id=$11 RETURNING *',
-      [name ?? e.name, amount ?? e.amount, currency ?? e.currency, frequency ?? e.frequency, interval_days ?? e.interval_days, start_date ?? e.start_date, category ?? e.category, notes ?? e.notes, color ?? e.color, req.params.id, req.user.id]
+      'UPDATE expenses SET name=$1, amount=$2, currency=$3, frequency=$4, interval_days=$5, start_date=$6, category=$7, notes=$8, color=$9, url=$10 WHERE id=$11 AND user_id=$12 RETURNING *',
+      [name ?? e.name, amount ?? e.amount, currency ?? e.currency, frequency ?? e.frequency, interval_days ?? e.interval_days, start_date ?? e.start_date, category ?? e.category, notes ?? e.notes, color ?? e.color, url ?? e.url ?? '', req.params.id, req.user.id]
     );
     res.json(formatRow(result.rows[0]));
   } catch (e) {

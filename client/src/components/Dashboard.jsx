@@ -11,7 +11,36 @@ const FREQ_LABELS = {
   monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly', custom: 'Custom',
 };
 
-const CURRENCIES = ['AUD', 'USD', 'EUR', 'GBP', 'CAD', 'JPY', 'CHF'];
+const CURRENCIES  = ['AUD', 'USD', 'EUR', 'GBP', 'CAD', 'JPY', 'CHF'];
+const CATEGORIES  = ['Housing','Utilities','Insurance','Subscriptions','Transport','Food','Health','Entertainment','Other'];
+const FREQUENCIES = [
+  { value: 'daily',     label: 'Daily' },
+  { value: 'weekly',    label: 'Weekly' },
+  { value: 'biweekly',  label: 'Every 2 weeks' },
+  { value: 'monthly',   label: 'Monthly' },
+  { value: 'quarterly', label: 'Quarterly' },
+  { value: 'yearly',    label: 'Yearly' },
+  { value: 'custom',    label: 'Custom' },
+];
+
+// Looks like a text label; clicking opens the native dropdown and saves on change
+function InlineSelect({ value, options, onChange, className = '' }) {
+  return (
+    <select
+      value={value}
+      onClick={e => e.stopPropagation()}
+      onChange={e => onChange(e.target.value)}
+      className={`bg-transparent border-none outline-none cursor-pointer appearance-none
+        hover:text-white transition-colors ${className}`}
+    >
+      {options.map(o =>
+        typeof o === 'string'
+          ? <option key={o} value={o}>{o}</option>
+          : <option key={o.value} value={o.value}>{o.label}</option>
+      )}
+    </select>
+  );
+}
 
 function urgencyClass(days) {
   if (days < 0) return { ring: 'ring-red-500/60', badge: 'bg-red-500/20 text-red-300', bar: 'bg-red-500', row: 'border-red-500/30' };
@@ -121,7 +150,21 @@ function ExpenseCard({ expense, onEdit, onRefresh, selectMode, isSelected, onTog
           <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: expense.color }} />
           <div className="min-w-0">
             <p className="font-semibold text-white truncate pr-6">{expense.name}</p>
-            <p className="text-xs text-gray-500 mt-0.5">{expense.category} · {FREQ_LABELS[expense.frequency]}</p>
+            <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-0.5">
+              <InlineSelect
+                value={expense.category}
+                options={CATEGORIES}
+                onChange={async v => { await updateExpense(expense.id, { category: v }); onRefresh(); }}
+                className="text-xs text-gray-500"
+              />
+              <span className="text-gray-700">·</span>
+              <InlineSelect
+                value={expense.frequency}
+                options={FREQUENCIES}
+                onChange={async v => { await updateExpense(expense.id, { frequency: v }); onRefresh(); }}
+                className="text-xs text-gray-500"
+              />
+            </p>
           </div>
         </div>
         <AmountCell expense={expense} onRefresh={onRefresh} disabled={selectMode} />
@@ -187,7 +230,21 @@ function ExpenseRow({ expense, onEdit, onRefresh, selectMode, isSelected, onTogg
 
       <div className="flex-1 min-w-0">
         <p className="font-medium text-white text-sm truncate">{expense.name}</p>
-        <p className="text-xs text-gray-500">{expense.category} · {FREQ_LABELS[expense.frequency]}</p>
+        <p className="text-xs text-gray-500 flex items-center gap-0.5">
+          <InlineSelect
+            value={expense.category}
+            options={CATEGORIES}
+            onChange={async v => { await updateExpense(expense.id, { category: v }); onRefresh(); }}
+            className="text-xs text-gray-500"
+          />
+          <span className="text-gray-700">·</span>
+          <InlineSelect
+            value={expense.frequency}
+            options={FREQUENCIES}
+            onChange={async v => { await updateExpense(expense.id, { frequency: v }); onRefresh(); }}
+            className="text-xs text-gray-500"
+          />
+        </p>
       </div>
 
       <span className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 hidden sm:block ${u.badge}`}>

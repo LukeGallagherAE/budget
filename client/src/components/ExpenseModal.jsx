@@ -58,8 +58,12 @@ export default function ExpenseModal({ expense, onClose, onSaved }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="bg-gray-900 rounded-2xl ring-1 ring-gray-700 w-full max-w-md max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/60 backdrop-blur-sm">
+      <div className="bg-gray-900 ring-1 ring-gray-700 w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[92vh] overflow-y-auto">
+        {/* Drag handle — mobile only */}
+        <div className="sm:hidden flex justify-center pt-3 pb-0">
+          <div className="w-10 h-1 rounded-full bg-gray-600" />
+        </div>
         <div className="flex items-center justify-between p-5 border-b border-gray-800">
           <h2 className="font-bold text-white">{isEdit ? 'Edit Expense' : 'Add Recurring Expense'}</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors">

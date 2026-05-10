@@ -394,18 +394,18 @@ export default function Dashboard({ expenses, onEdit, onRefresh }) {
   return (
     <div className="flex flex-col gap-6 pb-24">
       {/* Summary bar */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-3">
         <div className="bg-gray-900 rounded-2xl p-4 ring-1 ring-gray-800">
           <p className="text-xs text-gray-500 mb-1">Monthly total</p>
-          <p className="text-2xl font-bold text-white">{new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(totalMonthly)}</p>
+          <p className="text-xl sm:text-2xl font-bold text-white">{new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(totalMonthly)}</p>
         </div>
         <div className="bg-gray-900 rounded-2xl p-4 ring-1 ring-red-500/30">
           <p className="text-xs text-gray-500 mb-1">Overdue</p>
-          <p className="text-2xl font-bold text-red-400">{overdue.length}</p>
+          <p className="text-xl sm:text-2xl font-bold text-red-400">{overdue.length}</p>
         </div>
         <div className="bg-gray-900 rounded-2xl p-4 ring-1 ring-yellow-500/30">
           <p className="text-xs text-gray-500 mb-1">Due this week</p>
-          <p className="text-2xl font-bold text-yellow-300">{dueSoon.length}</p>
+          <p className="text-xl sm:text-2xl font-bold text-yellow-300">{dueSoon.length}</p>
         </div>
       </div>
 

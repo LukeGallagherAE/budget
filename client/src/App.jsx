@@ -59,7 +59,8 @@ function MainApp() {
         <div className="max-w-6xl mx-auto px-4 flex items-center justify-between h-14">
           <span className="text-xl font-bold tracking-tight text-white">ExpenseRadar</span>
 
-          <nav className="flex items-center gap-1">
+          {/* Desktop nav — hidden on mobile */}
+          <nav className="hidden sm:flex items-center gap-1">
             {tabs.map(({ id, label, Icon }) => (
               <button
                 key={id}
@@ -80,7 +81,8 @@ function MainApp() {
               className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
             >
               <Plus size={15} />
-              Add Expense
+              <span className="hidden sm:inline">Add Expense</span>
+              <span className="sm:hidden">Add</span>
             </button>
             <div className="flex items-center gap-2 pl-2 border-l border-gray-800">
               <span className="text-xs text-gray-500 hidden sm:block">{user.email}</span>
@@ -96,7 +98,25 @@ function MainApp() {
         </div>
       </header>
 
-      <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
+      {/* Mobile bottom nav — hidden on desktop */}
+      <nav className="sm:hidden fixed bottom-0 inset-x-0 z-30 bg-gray-900 border-t border-gray-800">
+        <div className="flex">
+          {tabs.map(({ id, label, Icon }) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={`flex-1 flex flex-col items-center gap-0.5 py-2 transition-colors ${
+                tab === id ? 'text-indigo-400' : 'text-gray-500'
+              }`}
+            >
+              <Icon size={20} />
+              <span className="text-[10px] font-medium">{label}</span>
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6 pb-20 sm:pb-6">
         {loading ? (
           <div className="flex items-center justify-center h-64 text-gray-500">Loading...</div>
         ) : tab === 'dashboard' ? (

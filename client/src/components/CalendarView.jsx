@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, format, isSameMonth, isToday,
@@ -74,7 +74,7 @@ export default function CalendarView({ expenses, onEdit }) {
               <div
                 key={i}
                 onClick={() => setSelected(day)}
-                className={`min-h-[80px] p-2 border-b border-r border-gray-800 cursor-pointer transition-colors
+                className={`min-h-[56px] sm:min-h-[80px] p-2 border-b border-r border-gray-800 cursor-pointer transition-colors
                   ${isCurrentMonth ? 'hover:bg-gray-800/50' : 'opacity-30'}
                   ${isSelected ? 'bg-indigo-900/30' : ''}
                 `}
@@ -86,15 +86,23 @@ export default function CalendarView({ expenses, onEdit }) {
                 </div>
                 <div className="flex flex-col gap-0.5">
                   {dayExpenses.slice(0, 3).map(exp => (
-                    <button
-                      key={exp.id}
-                      onClick={e => { e.stopPropagation(); onEdit && onEdit(exp); }}
-                      className="text-xs px-1.5 py-0.5 rounded truncate font-medium w-full text-left transition-opacity hover:opacity-80"
-                      style={{ backgroundColor: exp.color + '33', color: exp.color }}
-                      title={`${exp.name} – ${new Intl.NumberFormat('en-US', { style: 'currency', currency: exp.currency }).format(exp.amount)}`}
-                    >
-                      {exp.name}
-                    </button>
+                    <Fragment key={exp.id}>
+                      {/* Mobile: dot only */}
+                      <div
+                        className="sm:hidden w-2 h-2 rounded-full mx-auto"
+                        style={{ backgroundColor: exp.color }}
+                        title={exp.name}
+                      />
+                      {/* Desktop: full chip */}
+                      <button
+                        onClick={e => { e.stopPropagation(); onEdit && onEdit(exp); }}
+                        className="hidden sm:block text-xs px-1.5 py-0.5 rounded truncate font-medium w-full text-left transition-opacity hover:opacity-80"
+                        style={{ backgroundColor: exp.color + '33', color: exp.color }}
+                        title={`${exp.name} – ${new Intl.NumberFormat('en-US', { style: 'currency', currency: exp.currency }).format(exp.amount)}`}
+                      >
+                        {exp.name}
+                      </button>
+                    </Fragment>
                   ))}
                   {dayExpenses.length > 3 && (
                     <div className="text-xs text-gray-500 pl-1">+{dayExpenses.length - 3} more</div>

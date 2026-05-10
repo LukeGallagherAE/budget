@@ -1,14 +1,12 @@
 import { useState } from 'react';
 import { differenceInDays, parseISO, format } from 'date-fns';
-import { Edit2, Trash2, CheckCircle, AlertCircle, Clock } from 'lucide-react';
+import { Edit2, Trash2, CheckCircle, AlertCircle, Clock, CheckSquare, Square, X } from 'lucide-react';
 import { deleteExpense, payExpense } from '../api.js';
 
 const FREQ_LABELS = {
   daily: 'Daily', weekly: 'Weekly', biweekly: 'Every 2 weeks',
   monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly', custom: 'Custom',
 };
-
-const CATEGORIES = ['Housing', 'Utilities', 'Insurance', 'Subscriptions', 'Transport', 'Food', 'Health', 'Entertainment', 'Other'];
 
 function urgencyClass(days) {
   if (days < 0) return { ring: 'ring-red-500/60', badge: 'bg-red-500/20 text-red-300', bar: 'bg-red-500' };
@@ -25,35 +23,52 @@ function countdownLabel(days) {
   return `${days}d left`;
 }
 
-function ExpenseCard({ expense, onEdit, onRefresh }) {
+function ExpenseCard({ expense, onEdit, onRefresh, selectMode, isSelected, onToggle }) {
   const days = differenceInDays(parseISO(expense.next_due_date), new Date());
   const u = urgencyClass(days);
 
-  async function handlePay() {
+  async function handlePay(e) {
+    e.stopPropagation();
     await payExpense(expense.id);
     onRefresh();
   }
 
-  async function handleDelete() {
+  async function handleDelete(e) {
+    e.stopPropagation();
     if (!confirm(`Delete "${expense.name}"?`)) return;
     await deleteExpense(expense.id);
     onRefresh();
   }
 
-  // progress bar: 0–100% where 100% = overdue
   const FREQ_TOTAL = { daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 91, yearly: 365, custom: expense.interval_days || 30 };
   const total = FREQ_TOTAL[expense.frequency] || 30;
   const elapsed = Math.max(0, total - days);
   const pct = Math.min(100, Math.round((elapsed / total) * 100));
 
   return (
-    <div className={`relative bg-gray-900 rounded-2xl p-5 ring-1 ${u.ring} flex flex-col gap-3 transition-all hover:scale-[1.01]`}>
+    <div
+      onClick={selectMode ? onToggle : undefined}
+      className={`relative bg-gray-900 rounded-2xl p-5 ring-1 flex flex-col gap-3 transition-all
+        ${selectMode ? 'cursor-pointer' : 'hover:scale-[1.01]'}
+        ${selectMode && isSelected ? 'ring-indigo-500 bg-indigo-950/30' : u.ring}
+      `}
+    >
+      {/* Select checkbox overlay */}
+      {selectMode && (
+        <div className="absolute top-3 right-3">
+          {isSelected
+            ? <CheckSquare size={18} className="text-indigo-400" />
+            : <Square size={18} className="text-gray-600" />
+          }
+        </div>
+      )}
+
       {/* Top row */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: expense.color }} />
           <div className="min-w-0">
-            <p className="font-semibold text-white truncate">{expense.name}</p>
+            <p className="font-semibold text-white truncate pr-6">{expense.name}</p>
             <p className="text-xs text-gray-500 mt-0.5">{expense.category} · {FREQ_LABELS[expense.frequency]}</p>
           </div>
         </div>
@@ -84,24 +99,26 @@ function ExpenseCard({ expense, onEdit, onRefresh }) {
         <p className="text-xs text-gray-500 truncate">{expense.notes}</p>
       )}
 
-      {/* Actions */}
-      <div className="flex items-center gap-2 pt-1 border-t border-gray-800">
-        <button
-          onClick={handlePay}
-          className="flex items-center gap-1 text-xs text-green-400 hover:text-green-300 transition-colors font-medium"
-        >
-          <CheckCircle size={13} />
-          Mark paid
-        </button>
-        <div className="ml-auto flex items-center gap-1">
-          <button onClick={() => onEdit(expense)} className="p-1.5 text-gray-500 hover:text-white rounded-lg hover:bg-gray-800 transition-colors">
-            <Edit2 size={13} />
+      {/* Actions — hidden in select mode */}
+      {!selectMode && (
+        <div className="flex items-center gap-2 pt-1 border-t border-gray-800">
+          <button
+            onClick={handlePay}
+            className="flex items-center gap-1 text-xs text-green-400 hover:text-green-300 transition-colors font-medium"
+          >
+            <CheckCircle size={13} />
+            Mark paid
           </button>
-          <button onClick={handleDelete} className="p-1.5 text-gray-500 hover:text-red-400 rounded-lg hover:bg-gray-800 transition-colors">
-            <Trash2 size={13} />
-          </button>
+          <div className="ml-auto flex items-center gap-1">
+            <button onClick={e => { e.stopPropagation(); onEdit(expense); }} className="p-1.5 text-gray-500 hover:text-white rounded-lg hover:bg-gray-800 transition-colors">
+              <Edit2 size={13} />
+            </button>
+            <button onClick={handleDelete} className="p-1.5 text-gray-500 hover:text-red-400 rounded-lg hover:bg-gray-800 transition-colors">
+              <Trash2 size={13} />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -117,6 +134,10 @@ export default function Dashboard({ expenses, onEdit, onRefresh }) {
   const dueSoon = expenses.filter(e => { const d = differenceInDays(parseISO(e.next_due_date), today); return d >= 0 && d <= 7; });
 
   const [filter, setFilter] = useState('all');
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [deleting, setDeleting] = useState(false);
+
   const cats = [...new Set(expenses.map(e => e.category))].sort();
 
   const visible = expenses.filter(e => {
@@ -125,6 +146,37 @@ export default function Dashboard({ expenses, onEdit, onRefresh }) {
     if (filter === 'soon') { const d = differenceInDays(parseISO(e.next_due_date), today); return d >= 0 && d <= 7; }
     return e.category === filter;
   });
+
+  function toggleSelect(id) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }
+
+  function selectAll() {
+    setSelectedIds(new Set(visible.map(e => e.id)));
+  }
+
+  async function deleteSelected() {
+    if (selectedIds.size === 0) return;
+    const names = expenses.filter(e => selectedIds.has(e.id)).map(e => e.name);
+    const msg = selectedIds.size === 1
+      ? `Delete "${names[0]}"?`
+      : `Delete ${selectedIds.size} expenses?\n\n${names.join('\n')}`;
+    if (!confirm(msg)) return;
+    setDeleting(true);
+    await Promise.all([...selectedIds].map(id => deleteExpense(id)));
+    setDeleting(false);
+    exitSelectMode();
+    onRefresh();
+  }
 
   if (expenses.length === 0) {
     return (
@@ -137,7 +189,7 @@ export default function Dashboard({ expenses, onEdit, onRefresh }) {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 pb-24">
       {/* Summary bar */}
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-gray-900 rounded-2xl p-4 ring-1 ring-gray-800">
@@ -154,30 +206,75 @@ export default function Dashboard({ expenses, onEdit, onRefresh }) {
         </div>
       </div>
 
-      {/* Filter chips */}
-      <div className="flex flex-wrap gap-2">
-        {['all', 'overdue', 'soon', ...cats].map(f => (
+      {/* Filter chips + select toggle */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex flex-wrap gap-2">
+          {['all', 'overdue', 'soon', ...cats].map(f => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                filter === f ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'
+              }`}
+            >
+              {f === 'all' ? 'All' : f === 'overdue' ? `Overdue (${overdue.length})` : f === 'soon' ? `Due soon (${dueSoon.length})` : f}
+            </button>
+          ))}
+        </div>
+        {!selectMode ? (
           <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-              filter === f ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'
-            }`}
+            onClick={() => setSelectMode(true)}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-gray-800 text-gray-400 hover:text-white transition-colors"
           >
-            {f === 'all' ? 'All' : f === 'overdue' ? `Overdue (${overdue.length})` : f === 'soon' ? `Due soon (${dueSoon.length})` : f}
+            <CheckSquare size={12} /> Select
           </button>
-        ))}
+        ) : (
+          <div className="flex items-center gap-2">
+            <button onClick={selectAll} className="text-xs text-indigo-400 hover:text-indigo-300">
+              Select all ({visible.length})
+            </button>
+            <span className="text-gray-700">·</span>
+            <button onClick={exitSelectMode} className="flex items-center gap-1 text-xs text-gray-400 hover:text-white">
+              <X size={12} /> Cancel
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Cards grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {visible.map(exp => (
-          <ExpenseCard key={exp.id} expense={exp} onEdit={onEdit} onRefresh={onRefresh} />
+          <ExpenseCard
+            key={exp.id}
+            expense={exp}
+            onEdit={onEdit}
+            onRefresh={onRefresh}
+            selectMode={selectMode}
+            isSelected={selectedIds.has(exp.id)}
+            onToggle={() => toggleSelect(exp.id)}
+          />
         ))}
         {visible.length === 0 && (
           <p className="text-gray-500 col-span-3 text-center py-8">No expenses match this filter.</p>
         )}
       </div>
+
+      {/* Floating batch-delete bar */}
+      {selectMode && selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 bg-gray-900 border border-gray-700 shadow-2xl rounded-2xl px-5 py-3">
+          <span className="text-sm text-gray-300 font-medium">
+            {selectedIds.size} selected
+          </span>
+          <button
+            onClick={deleteSelected}
+            disabled={deleting}
+            className="flex items-center gap-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-sm font-semibold px-4 py-1.5 rounded-xl transition-colors"
+          >
+            <Trash2 size={14} />
+            {deleting ? 'Deleting…' : `Delete ${selectedIds.size}`}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

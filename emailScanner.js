@@ -11,6 +11,8 @@ const { simpleParser } = require('mailparser');
 const Anthropic = require('@anthropic-ai/sdk');
 const pdfParse = require('pdf-parse');
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 function classifyFrequency(avgDays) {
   if (avgDays <= 1.5)  return 'daily';
   if (avgDays <= 8)    return 'weekly';
@@ -107,8 +109,11 @@ async function extractInvoices(emails) {
   // Support both default and named export styles across SDK versions
   const AnthropicClient = Anthropic.default || Anthropic;
   const anthropic = new AnthropicClient({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const BATCH = 12;
-  const CONCURRENCY = 3;
+
+  // Process sequentially with a delay between batches to stay under the
+  // 50k tokens/minute rate limit. Takes longer but won't hit 429 errors.
+  const BATCH = 10;
+  const DELAY_MS = 4000; // 4 s gap — well under rate limit
   const today = new Date().toISOString().split('T')[0];
   const results = [];
   const errors = [];
@@ -116,81 +121,81 @@ async function extractInvoices(emails) {
   const chunks = [];
   for (let i = 0; i < emails.length; i += BATCH) chunks.push(emails.slice(i, i + BATCH));
 
-  for (let i = 0; i < chunks.length; i += CONCURRENCY) {
-    const slice = chunks.slice(i, i + CONCURRENCY);
-    const batchResults = await Promise.all(slice.map(async (batch) => {
-      const formatted = batch.map((e, j) => {
-        const dateStr = e.date instanceof Date
-          ? e.date.toISOString().split('T')[0]
-          : String(e.date).split('T')[0];
-        return '=== EMAIL ' + j + ' ===\nFrom: ' + e.from + '\nSubject: ' + e.subject + '\nDate: ' + dateStr + '\n\n' + e.body;
-      }).join('\n\n---\n\n');
+  for (let i = 0; i < chunks.length; i++) {
+    if (i > 0) await sleep(DELAY_MS);
+    const batch = chunks[i];
 
-      const prompt = 'Today is ' + today + '. Analyse these emails and extract invoice/payment data.\n\n' +
-        'Return ONLY a valid JSON array — no markdown fences, no extra text:\n' +
-        '[{\n' +
-        '  "index": <0-based email number>,\n' +
-        '  "merchant": "<short company name e.g. Netflix, Telstra, AWS>",\n' +
-        '  "amount": <number>,\n' +
-        '  "currency": "<AUD|USD|GBP|EUR>",\n' +
-        '  "due_date": "<YYYY-MM-DD or null>",\n' +
-        '  "paid_date": "<YYYY-MM-DD or null>",\n' +
-        '  "invoice_number": "<string or null>",\n' +
-        '  "status": "<paid|due|upcoming>",\n' +
-        '  "category": "<Subscriptions|Utilities|Insurance|Food|Transport|Health|Entertainment|Other>",\n' +
-        '  "confidence": <60-99>\n' +
-        '}]\n\n' +
-        'Rules:\n' +
-        '- "paid"     = payment confirmed/processed\n' +
-        '- "due"      = payment due within 14 days of today\n' +
-        '- "upcoming" = payment due more than 14 days away\n' +
-        '- Omit non-invoice emails (newsletters, promotions without real amounts)\n' +
-        '- Only include confidence >= 60\n' +
-        '- Amounts must come from the email text, not guessed\n' +
-        '- Return [] if none qualify\n\n' +
-        'Emails:\n' + formatted;
+    const formatted = batch.map((e, j) => {
+      const dateStr = e.date instanceof Date
+        ? e.date.toISOString().split('T')[0]
+        : String(e.date).split('T')[0];
+      return '=== EMAIL ' + j + ' ===\nFrom: ' + e.from + '\nSubject: ' + e.subject + '\nDate: ' + dateStr + '\n\n' + e.body;
+    }).join('\n\n---\n\n');
 
-      try {
-        const response = await anthropic.messages.create({
-          model: 'claude-haiku-4-5',
-          max_tokens: 2048,
-          messages: [{ role: 'user', content: prompt }],
-        });
+    const prompt = 'Today is ' + today + '. Analyse these emails and extract invoice/payment data.\n\n' +
+      'Return ONLY a valid JSON array — no markdown fences, no extra text:\n' +
+      '[{\n' +
+      '  "index": <0-based email number>,\n' +
+      '  "merchant": "<short company name e.g. Netflix, Telstra, AWS>",\n' +
+      '  "amount": <number>,\n' +
+      '  "currency": "<AUD|USD|GBP|EUR>",\n' +
+      '  "due_date": "<YYYY-MM-DD or null>",\n' +
+      '  "paid_date": "<YYYY-MM-DD or null>",\n' +
+      '  "invoice_number": "<string or null>",\n' +
+      '  "status": "<paid|due|upcoming>",\n' +
+      '  "category": "<Subscriptions|Utilities|Insurance|Food|Transport|Health|Entertainment|Other>",\n' +
+      '  "confidence": <60-99>\n' +
+      '}]\n\n' +
+      'Rules:\n' +
+      '- "paid"     = payment confirmed/processed\n' +
+      '- "due"      = payment due within 14 days of today\n' +
+      '- "upcoming" = payment due more than 14 days away\n' +
+      '- Omit non-invoice emails (newsletters, promotions without real amounts)\n' +
+      '- Only include confidence >= 60\n' +
+      '- Amounts must come from the email text, not guessed\n' +
+      '- Return [] if none qualify\n\n' +
+      'Emails:\n' + formatted;
 
-        const raw = response.content[0].text.trim();
-        const jsonStr = raw.match(/\[[\s\S]*\]/)?.[0] || '[]';
-        return JSON.parse(jsonStr)
-          .filter(item => item.confidence >= 60 && item.amount > 0)
-          .map(item => ({
-            merchant: item.merchant,
-            amount: parseFloat(item.amount),
-            currency: item.currency || 'AUD',
-            due_date: item.due_date || null,
-            paid_date: item.paid_date || null,
-            invoice_number: item.invoice_number || null,
-            status: item.status || 'upcoming',
-            category: item.category || 'Other',
-            confidence: item.confidence,
-            from: (batch[item.index] || {}).from || '',
-            subject: (batch[item.index] || {}).subject || '',
-            email_date: (() => {
-              const d = (batch[item.index] || {}).date;
-              return d instanceof Date ? d.toISOString().split('T')[0] : null;
-            })(),
-            attachments: (batch[item.index] || {}).attachments || [],
-            email_body: ((batch[item.index] || {}).body || '').slice(0, 600),
-          }));
-      } catch (e) {
-        const msg = e.status
-          ? ('Claude API error ' + e.status + ': ' + (e.error?.error?.message || e.message))
-          : e.message;
-        console.error('Batch extraction error:', msg);
-        errors.push(msg);
-        return [];
-      }
-    }));
-    results.push(...batchResults.flat());
+    try {
+      const response = await anthropic.messages.create({
+        model: 'claude-haiku-4-5',
+        max_tokens: 2048,
+        messages: [{ role: 'user', content: prompt }],
+      });
+
+      const raw = response.content[0].text.trim();
+      const jsonStr = raw.match(/\[[\s\S]*\]/)?.[0] || '[]';
+      const extracted = JSON.parse(jsonStr)
+        .filter(item => item.confidence >= 60 && item.amount > 0)
+        .map(item => ({
+          merchant: item.merchant,
+          amount: parseFloat(item.amount),
+          currency: item.currency || 'AUD',
+          due_date: item.due_date || null,
+          paid_date: item.paid_date || null,
+          invoice_number: item.invoice_number || null,
+          status: item.status || 'upcoming',
+          category: item.category || 'Other',
+          confidence: item.confidence,
+          from: (batch[item.index] || {}).from || '',
+          subject: (batch[item.index] || {}).subject || '',
+          email_date: (() => {
+            const d = (batch[item.index] || {}).date;
+            return d instanceof Date ? d.toISOString().split('T')[0] : null;
+          })(),
+          attachments: (batch[item.index] || {}).attachments || [],
+          email_body: ((batch[item.index] || {}).body || '').slice(0, 600),
+        }));
+      results.push(...extracted);
+    } catch (e) {
+      const msg = e.status
+        ? ('Claude API error ' + e.status + ': ' + (e.error?.error?.message || e.message))
+        : e.message;
+      console.error('Batch extraction error:', msg);
+      errors.push(msg);
+    }
   }
+
   return { invoices: results, errors };
 }
 
@@ -243,7 +248,7 @@ async function scanInvoiceEmails() {
   const { invoices: raw, errors } = await extractInvoices(emails);
 
   // If ALL batches errored and we got nothing, surface the first error
-  if (raw.length === 0 && errors.length > 0 && errors.length === Math.ceil(emails.length / 12)) {
+  if (raw.length === 0 && errors.length > 0 && errors.length === Math.ceil(emails.length / 10)) {
     throw new Error('Claude extraction failed: ' + errors[0]);
   }
 

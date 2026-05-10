@@ -225,7 +225,7 @@ export default function EmailView({ expenses = [], onImported }) {
         <div className="flex flex-col items-center gap-3 py-10 text-gray-400">
           <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
           <p className="text-sm font-medium text-indigo-400">Scanning your emails…</p>
-          <p className="text-xs text-gray-500">Reading subjects, then asking Claude to extract invoice data. Usually takes 15–30 seconds.</p>
+          <p className="text-xs text-gray-500">Reading a year of emails, then asking Claude to extract invoice data. Allow 2–3 minutes — batches are spaced out to avoid rate limits.</p>
         </div>
       )}
 

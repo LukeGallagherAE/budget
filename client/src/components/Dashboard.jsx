@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { differenceInDays, parseISO, format } from 'date-fns';
-import { Edit2, Trash2, CheckCircle, AlertCircle, Clock, CheckSquare, Square, X } from 'lucide-react';
-import { deleteExpense, payExpense } from '../api.js';
+import { Edit2, Trash2, CheckCircle, Clock, CheckSquare, Square, X } from 'lucide-react';
+import { deleteExpense, payExpense, updateExpense } from '../api.js';
+
+const CURRENCIES = ['AUD', 'USD', 'EUR', 'GBP', 'CAD', 'JPY', 'CHF'];
 
 const FREQ_LABELS = {
   daily: 'Daily', weekly: 'Weekly', biweekly: 'Every 2 weeks',
@@ -26,6 +28,31 @@ function countdownLabel(days) {
 function ExpenseCard({ expense, onEdit, onRefresh, selectMode, isSelected, onToggle }) {
   const days = differenceInDays(parseISO(expense.next_due_date), new Date());
   const u = urgencyClass(days);
+  const [editingAmt, setEditingAmt] = useState(false);
+  const [amtDraft, setAmtDraft] = useState('');
+  const [curDraft, setCurDraft] = useState('');
+
+  function startEditAmt(e) {
+    if (selectMode) return;
+    e.stopPropagation();
+    setAmtDraft(expense.amount.toFixed(2));
+    setCurDraft(expense.currency);
+    setEditingAmt(true);
+  }
+
+  async function saveAmt() {
+    const parsed = parseFloat(amtDraft);
+    if (!isNaN(parsed) && (parsed !== expense.amount || curDraft !== expense.currency)) {
+      await updateExpense(expense.id, { amount: parsed, currency: curDraft });
+      onRefresh();
+    }
+    setEditingAmt(false);
+  }
+
+  function handleAmtKey(e) {
+    if (e.key === 'Enter') { e.target.blur(); }
+    if (e.key === 'Escape') { setEditingAmt(false); }
+  }
 
   async function handlePay(e) {
     e.stopPropagation();
@@ -72,11 +99,37 @@ function ExpenseCard({ expense, onEdit, onRefresh, selectMode, isSelected, onTog
             <p className="text-xs text-gray-500 mt-0.5">{expense.category} · {FREQ_LABELS[expense.frequency]}</p>
           </div>
         </div>
-        <div className="flex-shrink-0 text-right">
-          <p className="text-lg font-bold text-white">
-            {new Intl.NumberFormat('en-US', { style: 'currency', currency: expense.currency }).format(expense.amount)}
-          </p>
-          <p className="text-xs text-gray-500">{expense.currency}</p>
+        <div className="flex-shrink-0 text-right" onClick={startEditAmt}>
+          {editingAmt ? (
+            <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={amtDraft}
+                autoFocus
+                onChange={e => setAmtDraft(e.target.value)}
+                onBlur={saveAmt}
+                onKeyDown={handleAmtKey}
+                className="w-24 bg-gray-800 border border-indigo-500 rounded-lg px-2 py-1 text-sm font-bold text-white text-right focus:outline-none"
+              />
+              <select
+                value={curDraft}
+                onChange={e => setCurDraft(e.target.value)}
+                onBlur={saveAmt}
+                className="bg-gray-800 border border-gray-700 rounded-lg px-1 py-1 text-xs text-gray-300 focus:outline-none focus:border-indigo-500"
+              >
+                {CURRENCIES.map(c => <option key={c}>{c}</option>)}
+              </select>
+            </div>
+          ) : (
+            <div className={!selectMode ? 'cursor-text group' : ''}>
+              <p className="text-lg font-bold text-white group-hover:text-indigo-300 transition-colors">
+                {new Intl.NumberFormat('en-AU', { style: 'currency', currency: expense.currency }).format(expense.amount)}
+              </p>
+              <p className="text-xs text-gray-500">{expense.currency}</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -194,7 +247,7 @@ export default function Dashboard({ expenses, onEdit, onRefresh }) {
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-gray-900 rounded-2xl p-4 ring-1 ring-gray-800">
           <p className="text-xs text-gray-500 mb-1">Monthly total</p>
-          <p className="text-2xl font-bold text-white">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalMonthly)}</p>
+          <p className="text-2xl font-bold text-white">{new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(totalMonthly)}</p>
         </div>
         <div className="bg-gray-900 rounded-2xl p-4 ring-1 ring-red-500/30">
           <p className="text-xs text-gray-500 mb-1">Overdue</p>

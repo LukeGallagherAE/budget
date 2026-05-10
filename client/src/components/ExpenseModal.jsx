@@ -21,7 +21,7 @@ export default function ExpenseModal({ expense, onClose, onSaved }) {
   const [form, setForm] = useState({
     name: expense?.name ?? '',
     amount: expense?.amount ?? '',
-    currency: expense?.currency ?? 'USD',
+    currency: expense?.currency ?? 'AUD',
     frequency: expense?.frequency ?? 'monthly',
     interval_days: expense?.interval_days ?? '',
     start_date: expense?.start_date ?? new Date().toISOString().split('T')[0],

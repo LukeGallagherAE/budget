@@ -140,7 +140,7 @@ app.get('/api/expenses', requireAuth, async (req, res) => {
 });
 
 app.post('/api/expenses', requireAuth, async (req, res) => {
-  const { name, amount, currency = 'USD', frequency, interval_days, start_date, category = 'Other', notes = '', color = '#6366f1' } = req.body;
+  const { name, amount, currency = 'AUD', frequency, interval_days, start_date, category = 'Other', notes = '', color = '#6366f1' } = req.body;
   if (!name || !amount || !frequency || !start_date) return res.status(400).json({ error: 'Missing required fields' });
   try {
     const result = await pool.query(

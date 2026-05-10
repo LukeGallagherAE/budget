@@ -205,12 +205,25 @@ function invoiceDate(inv) {
   return isNaN(d) ? new Date(0) : d;
 }
 
+function billingDayBucket(inv) {
+  // Extract day-of-month from the best available date, then round to the
+  // nearest 3-day bucket so minor drift (e.g. billed on the 14th one month,
+  // 15th the next) doesn't split a single subscription into two groups.
+  const d = invoiceDate(inv);
+  if (d.getTime() === 0) return 0;
+  return Math.round(d.getDate() / 3) * 3;
+}
+
 function deduplicateInvoices(invoices) {
-  // Group by merchant name only (not amount) so price changes over time
-  // are merged into one entry rather than shown as two separate invoices.
+  // Group by merchant + approximate billing day-of-month.
+  //
+  // Using the day of month (not just merchant) means:
+  //   • Two AWS invoices on the 1st and 15th → two separate tiles  ✓
+  //   • Netflix $15.99 and $18.99, both around the 12th → one tile,
+  //     most recent price wins                                       ✓
   const groups = {};
   for (const inv of invoices) {
-    const key = inv.merchant.toLowerCase().trim();
+    const key = inv.merchant.toLowerCase().trim() + '|' + billingDayBucket(inv);
     if (!groups[key]) groups[key] = [];
     groups[key].push(inv);
   }

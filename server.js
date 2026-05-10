@@ -215,6 +215,7 @@ app.post('/api/import', requireAuth, upload.single('file'), async (req, res) => 
 app.post('/api/email/scan', requireAuth, async (req, res) => {
   try {
     const result = await scanInvoiceEmails();
+    // Include any partial errors so the UI can surface them to the user
     res.json(result);
   } catch (e) {
     // Surface config errors cleanly so the frontend can show setup instructions

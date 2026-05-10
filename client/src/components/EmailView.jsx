@@ -98,8 +98,9 @@ export default function EmailView({ expenses = [], onImported }) {
   const [selected,   setSelected]   = useState({});
   const [saving,     setSaving]     = useState(false);
   const [done,       setDone]       = useState(null);
-  const [error,      setError]      = useState(null);
-  const [emailCount, setEmailCount] = useState(null);
+  const [error,           setError]           = useState(null);
+  const [extractionErrors, setExtractionErrors] = useState([]);
+  const [emailCount,      setEmailCount]      = useState(null);
 
   useEffect(() => {
     getEmailStatus()
@@ -109,6 +110,7 @@ export default function EmailView({ expenses = [], onImported }) {
 
   async function handleScan() {
     setError(null);
+    setExtractionErrors([]);
     setResults(null);
     setDone(null);
     setSelected({});
@@ -116,6 +118,7 @@ export default function EmailView({ expenses = [], onImported }) {
     try {
       const data = await scanEmails();
       setEmailCount(data.emails_scanned);
+      if (data.errors?.length) setExtractionErrors(data.errors);
       const enriched = data.invoices.map(inv => ({
         ...inv,
         invoice_status: inv.status,          // 'paid' | 'due' | 'upcoming' — from email
@@ -212,6 +215,17 @@ export default function EmailView({ expenses = [], onImported }) {
         </div>
       )}
 
+      {extractionErrors.length > 0 && (
+        <div className="bg-amber-950/30 rounded-xl p-4 ring-1 ring-amber-500/30 flex flex-col gap-1">
+          <p className="flex items-center gap-2 text-amber-400 text-sm font-medium">
+            <AlertCircle size={14} /> Claude extraction had errors ({extractionErrors.length} batch{extractionErrors.length !== 1 ? 'es' : ''} failed)
+          </p>
+          {extractionErrors.map((e, i) => (
+            <p key={i} className="text-xs text-amber-300/70 font-mono break-all">{e}</p>
+          ))}
+        </div>
+      )}
+
       {results && (
         <>
           {/* Summary bar */}
@@ -229,7 +243,7 @@ export default function EmailView({ expenses = [], onImported }) {
               <button onClick={() => setSelected({})} className="text-gray-400 hover:text-gray-300">Deselect all</button>
               <span className="text-gray-600">·</span>
               <button
-                onClick={() => { setResults(null); setDone(null); setSelected({}); }}
+                onClick={() => { setResults(null); setDone(null); setSelected({}); setExtractionErrors([]); }}
                 className="text-gray-400 hover:text-gray-300 flex items-center gap-1"
               ><RefreshCw size={10} /> Rescan</button>
             </div>

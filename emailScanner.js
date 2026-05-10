@@ -82,56 +82,57 @@ async function fetchInvoiceEmails() {
 }
 
 async function extractInvoices(emails) {
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  // Support both default and named export styles across SDK versions
+  const AnthropicClient = Anthropic.default || Anthropic;
+  const anthropic = new AnthropicClient({ apiKey: process.env.ANTHROPIC_API_KEY });
   const BATCH = 12;
   const CONCURRENCY = 3;
   const today = new Date().toISOString().split('T')[0];
   const results = [];
+  const errors = [];
 
   const chunks = [];
   for (let i = 0; i < emails.length; i += BATCH) chunks.push(emails.slice(i, i + BATCH));
 
   for (let i = 0; i < chunks.length; i += CONCURRENCY) {
-    const window = chunks.slice(i, i + CONCURRENCY);
-    const batchResults = await Promise.all(window.map(async (batch) => {
-      const formatted = batch.map((e, j) =>
-        `=== EMAIL ${j} ===\nFrom: ${e.from}\nSubject: ${e.subject}\nDate: ${e.date.toISOString().split('T')[0]}\n\n${e.body}`
-      ).join('\n\n---\n\n');
+    const slice = chunks.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.all(slice.map(async (batch) => {
+      const formatted = batch.map((e, j) => {
+        const dateStr = e.date instanceof Date
+          ? e.date.toISOString().split('T')[0]
+          : String(e.date).split('T')[0];
+        return '=== EMAIL ' + j + ' ===\nFrom: ' + e.from + '\nSubject: ' + e.subject + '\nDate: ' + dateStr + '\n\n' + e.body;
+      }).join('\n\n---\n\n');
+
+      const prompt = 'Today is ' + today + '. Analyse these emails and extract invoice/payment data.\n\n' +
+        'Return ONLY a valid JSON array — no markdown fences, no extra text:\n' +
+        '[{\n' +
+        '  "index": <0-based email number>,\n' +
+        '  "merchant": "<short company name e.g. Netflix, Telstra, AWS>",\n' +
+        '  "amount": <number>,\n' +
+        '  "currency": "<AUD|USD|GBP|EUR>",\n' +
+        '  "due_date": "<YYYY-MM-DD or null>",\n' +
+        '  "paid_date": "<YYYY-MM-DD or null>",\n' +
+        '  "invoice_number": "<string or null>",\n' +
+        '  "status": "<paid|due|upcoming>",\n' +
+        '  "category": "<Subscriptions|Utilities|Insurance|Food|Transport|Health|Entertainment|Other>",\n' +
+        '  "confidence": <60-99>\n' +
+        '}]\n\n' +
+        'Rules:\n' +
+        '- "paid"     = payment confirmed/processed\n' +
+        '- "due"      = payment due within 14 days of today\n' +
+        '- "upcoming" = payment due more than 14 days away\n' +
+        '- Omit non-invoice emails (newsletters, promotions without real amounts)\n' +
+        '- Only include confidence >= 60\n' +
+        '- Amounts must come from the email text, not guessed\n' +
+        '- Return [] if none qualify\n\n' +
+        'Emails:\n' + formatted;
 
       try {
         const response = await anthropic.messages.create({
           model: 'claude-haiku-4-5',
           max_tokens: 2048,
-          messages: [{
-            role: 'user',
-            content: `Today is ${today}. Analyse these emails and extract invoice/payment data.
-
-Return ONLY a valid JSON array — no markdown fences, no extra text:
-[{
-  "index": <0-based email number>,
-  "merchant": "<short company name e.g. Netflix, Telstra, AWS>",
-  "amount": <number>,
-  "currency": "<AUD|USD|GBP|EUR>",
-  "due_date": "<YYYY-MM-DD or null>",
-  "paid_date": "<YYYY-MM-DD or null>",
-  "invoice_number": "<string or null>",
-  "status": "<paid|due|upcoming>",
-  "category": "<Subscriptions|Utilities|Insurance|Food|Transport|Health|Housing|Entertainment|Other>",
-  "confidence": <60-99>
-}]
-
-Rules:
-- "paid"     = payment confirmed/processed
-- "due"      = payment due within 14 days of today
-- "upcoming" = payment due more than 14 days away
-- Omit non-invoice emails (newsletters, promotions without real amounts)
-- Only include confidence >= 60
-- Amounts must come from the email text, not guessed
-- Return [] if none qualify
-
-Emails:
-${formatted}`,
-          }],
+          messages: [{ role: 'user', content: prompt }],
         });
 
         const raw = response.content[0].text.trim();
@@ -150,23 +151,30 @@ ${formatted}`,
             confidence: item.confidence,
             from: (batch[item.index] || {}).from || '',
             subject: (batch[item.index] || {}).subject || '',
-            email_date: (batch[item.index] || {}).date?.toISOString?.()?.split('T')[0] || null,
+            email_date: (() => {
+              const d = (batch[item.index] || {}).date;
+              return d instanceof Date ? d.toISOString().split('T')[0] : null;
+            })(),
           }));
       } catch (e) {
-        console.error('Batch extraction error:', e.message);
+        const msg = e.status
+          ? ('Claude API error ' + e.status + ': ' + (e.error?.error?.message || e.message))
+          : e.message;
+        console.error('Batch extraction error:', msg);
+        errors.push(msg);
         return [];
       }
     }));
     results.push(...batchResults.flat());
   }
-  return results;
+  return { invoices: results, errors };
 }
 
 function deduplicateInvoices(invoices) {
   // Group by normalised merchant + amount
   const groups = {};
   for (const inv of invoices) {
-    const key = `${inv.merchant.toLowerCase().trim()}|${inv.amount.toFixed(2)}`;
+    const key = inv.merchant.toLowerCase().trim() + '|' + inv.amount.toFixed(2);
     if (!groups[key]) groups[key] = [];
     groups[key].push(inv);
   }
@@ -197,12 +205,18 @@ async function scanInvoiceEmails() {
   if (!process.env.ANTHROPIC_API_KEY)
     throw new Error('ANTHROPIC_KEY_MISSING');
 
-  const emails   = await fetchInvoiceEmails();
-  if (!emails.length) return { invoices: [], emails_scanned: 0 };
+  const emails = await fetchInvoiceEmails();
+  if (!emails.length) return { invoices: [], emails_scanned: 0, errors: [] };
 
-  const raw      = await extractInvoices(emails);
+  const { invoices: raw, errors } = await extractInvoices(emails);
+
+  // If ALL batches errored and we got nothing, surface the first error
+  if (raw.length === 0 && errors.length > 0 && errors.length === Math.ceil(emails.length / 12)) {
+    throw new Error('Claude extraction failed: ' + errors[0]);
+  }
+
   const invoices = deduplicateInvoices(raw);
-  return { invoices, emails_scanned: emails.length };
+  return { invoices, emails_scanned: emails.length, errors };
 }
 
 module.exports = { scanInvoiceEmails };

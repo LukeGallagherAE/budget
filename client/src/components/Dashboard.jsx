@@ -179,7 +179,9 @@ function ExpenseCard({ expense, onEdit, onRefresh, selectMode, isSelected, onTog
         <span className="text-xs text-gray-500">{format(parseISO(expense.next_due_date), 'MMM d, yyyy')}</span>
       </div>
 
-      {expense.notes && <p className="text-xs text-gray-500 truncate">{expense.notes}</p>}
+      {expense.notes && (
+        <p className="text-xs text-gray-500 leading-relaxed line-clamp-3">{expense.notes}</p>
+      )}
 
       {expense.url && (
         <a
@@ -262,6 +264,9 @@ function ExpenseRow({ expense, onEdit, onRefresh, selectMode, isSelected, onTogg
             onChange={async v => { await updateExpense(expense.id, { frequency: v }); onRefresh(); }}
             className="text-xs text-gray-500" />
         </p>
+        {expense.notes && (
+          <p className="text-xs text-gray-600 truncate mt-0.5 max-w-xs">{expense.notes}</p>
+        )}
       </div>
 
       {/* Countdown — fixed width so it never shifts neighbours */}

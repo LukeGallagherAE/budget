@@ -178,7 +178,14 @@ export default function EmailView({ expenses = [], onImported }) {
           interval_days: null,
           start_date:    inv.due_date || inv.paid_date || inv.email_date || new Date().toISOString().split('T')[0],
           category:      overrides.category  ?? inv.category ?? 'Other',
-          notes:         overrides.notes     ?? `Imported from email. Subject: "${inv.subject}"`,
+          notes:         overrides.notes     ?? (() => {
+            const parts = [];
+            if (inv.subject) parts.push(`"${inv.subject}"`);
+            if (inv.from)    parts.push(`From: ${inv.from}`);
+            if (inv.email_body) parts.push(inv.email_body.slice(0, 200).trim());
+            if (inv.attachments?.length) parts.push(`PDFs: ${inv.attachments.map(a => a.name).join(', ')}`);
+            return parts.join('\n');
+          })(),
           color:         colorFor(i),
         });
         added++;
@@ -393,49 +400,60 @@ export default function EmailView({ expenses = [], onImported }) {
                       )}
                     </div>
 
+                    {/* From / dates row */}
                     <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 flex-wrap">
-                      {inv.due_date  && <span>Due: {inv.due_date}</span>}
-                      {inv.paid_date && <span>Paid: {inv.paid_date}</span>}
-                      {!inv.due_date && !inv.paid_date && inv.email_date && <span>Email: {inv.email_date}</span>}
-                      <span className="truncate opacity-60">{inv.from}</span>
+                      {inv.due_date  && <span className="text-yellow-400/80">Due {inv.due_date}</span>}
+                      {inv.paid_date && <span className="text-green-400/80">Paid {inv.paid_date}</span>}
+                      {!inv.due_date && !inv.paid_date && inv.email_date && <span>Received {inv.email_date}</span>}
+                      {inv.from && <span className="truncate opacity-50">{inv.from}</span>}
                     </div>
 
-                    {/* PDF attachments — clearly labelled block */}
+                    {/* Subject line */}
+                    {inv.subject && (
+                      <p className="mt-1 text-xs text-gray-400 italic truncate" title={inv.subject}>
+                        "{inv.subject}"
+                      </p>
+                    )}
+
+                    {/* Email body — always show a preview, expand for full */}
+                    {inv.email_body && (
+                      <div className="mt-2">
+                        <p className="text-xs text-gray-400 leading-relaxed whitespace-pre-wrap break-words">
+                          {bodyOpen[i] ? inv.email_body : inv.email_body.slice(0, 180).trimEnd()}
+                          {!bodyOpen[i] && inv.email_body.length > 180 && (
+                            <button
+                              onClick={() => setBodyOpen(p => ({ ...p, [i]: true }))}
+                              className="text-gray-500 hover:text-gray-300 ml-1"
+                            >… more</button>
+                          )}
+                        </p>
+                        {bodyOpen[i] && (
+                          <button
+                            onClick={() => setBodyOpen(p => ({ ...p, [i]: false }))}
+                            className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-300 mt-1"
+                          >
+                            <ChevronUp size={11} /> Show less
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* PDF attachments — only shown when emails actually have .pdf files attached */}
                     {inv.attachments?.length > 0 && (
                       <div className="mt-2 rounded-lg bg-blue-950/40 border border-blue-500/30 px-3 py-2 flex flex-col gap-1.5">
                         <p className="text-xs font-semibold text-blue-300 flex items-center gap-1.5">
                           <FileText size={11} />
-                          {inv.attachments.length === 1 ? 'PDF attachment' : `${inv.attachments.length} PDF attachments`}
+                          {inv.attachments.length === 1 ? '1 PDF attached' : `${inv.attachments.length} PDFs attached`}
                         </p>
                         <div className="flex flex-wrap gap-1.5">
                           {inv.attachments.map((att, j) => (
                             <span key={j} className="flex items-center gap-1.5 text-xs text-blue-200 bg-blue-900/50 border border-blue-500/20 px-2 py-1 rounded-md font-mono">
                               <FileText size={10} className="text-blue-400" />
                               {att.name}
-                              {att.size > 0 && (
-                                <span className="text-blue-400/60 font-sans">{(att.size / 1024).toFixed(0)} KB</span>
-                              )}
+                              {att.size > 0 && <span className="text-blue-400/60 font-sans ml-1">{(att.size / 1024).toFixed(0)} KB</span>}
                             </span>
                           ))}
                         </div>
-                      </div>
-                    )}
-
-                    {/* Email body preview */}
-                    {inv.email_body && (
-                      <div className="mt-2">
-                        <button
-                          onClick={() => setBodyOpen(p => ({ ...p, [i]: !p[i] }))}
-                          className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-300 transition-colors"
-                        >
-                          {bodyOpen[i] ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-                          {bodyOpen[i] ? 'Hide email' : 'Show email'}
-                        </button>
-                        {bodyOpen[i] && (
-                          <pre className="mt-2 text-xs text-gray-400 bg-gray-900/60 rounded-lg px-3 py-2 whitespace-pre-wrap break-words font-sans leading-relaxed max-h-48 overflow-y-auto ring-1 ring-gray-700">
-                            {inv.email_body}
-                          </pre>
-                        )}
                       </div>
                     )}
 

@@ -400,16 +400,24 @@ export default function EmailView({ expenses = [], onImported }) {
                       <span className="truncate opacity-60">{inv.from}</span>
                     </div>
 
-                    {/* PDF attachments */}
+                    {/* PDF attachments — clearly labelled block */}
                     {inv.attachments?.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {inv.attachments.map((att, j) => (
-                          <span key={j} className="flex items-center gap-1 text-xs text-blue-300 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-full">
-                            <FileText size={10} />
-                            {att.name}
-                            {att.size > 0 && <span className="text-blue-400/50">{(att.size / 1024).toFixed(0)}KB</span>}
-                          </span>
-                        ))}
+                      <div className="mt-2 rounded-lg bg-blue-950/40 border border-blue-500/30 px-3 py-2 flex flex-col gap-1.5">
+                        <p className="text-xs font-semibold text-blue-300 flex items-center gap-1.5">
+                          <FileText size={11} />
+                          {inv.attachments.length === 1 ? 'PDF attachment' : `${inv.attachments.length} PDF attachments`}
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {inv.attachments.map((att, j) => (
+                            <span key={j} className="flex items-center gap-1.5 text-xs text-blue-200 bg-blue-900/50 border border-blue-500/20 px-2 py-1 rounded-md font-mono">
+                              <FileText size={10} className="text-blue-400" />
+                              {att.name}
+                              {att.size > 0 && (
+                                <span className="text-blue-400/60 font-sans">{(att.size / 1024).toFixed(0)} KB</span>
+                              )}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                     )}
 

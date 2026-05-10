@@ -226,64 +226,66 @@ function ExpenseRow({ expense, onEdit, onRefresh, selectMode, isSelected, onTogg
   return (
     <div
       onClick={selectMode ? onToggle : undefined}
-      className={`flex items-center gap-4 px-4 py-3 border-b transition-colors
+      className={`flex items-center px-4 py-3 border-b transition-colors gap-3
         ${selectMode ? 'cursor-pointer' : ''}
         ${selectMode && isSelected ? 'bg-indigo-950/30 border-indigo-500/30' : 'border-gray-800 hover:bg-gray-800/40'}
       `}
     >
+      {/* Checkbox */}
       {selectMode && (
-        <div className="flex-shrink-0">
+        <div className="w-5 flex-shrink-0 flex items-center">
           {isSelected ? <CheckSquare size={16} className="text-indigo-400" /> : <Square size={16} className="text-gray-600" />}
         </div>
       )}
 
+      {/* Color dot */}
       <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: expense.color }} />
 
+      {/* Name + category/frequency — fills remaining space */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0">
           <p className="font-medium text-white text-sm truncate">{expense.name}</p>
           {expense.url && (
-            <a
-              href={expense.url} target="_blank" rel="noopener noreferrer"
-              onClick={e => e.stopPropagation()}
-              title={expense.url}
-              className="text-indigo-400 hover:text-indigo-300 flex-shrink-0"
-            >
-              <ExternalLink size={12} />
+            <a href={expense.url} target="_blank" rel="noopener noreferrer"
+              onClick={e => e.stopPropagation()} title={expense.url}
+              className="text-indigo-400 hover:text-indigo-300 flex-shrink-0">
+              <ExternalLink size={11} />
             </a>
           )}
         </div>
-        <p className="text-xs text-gray-500 flex items-center gap-0.5">
-          <InlineSelect
-            value={expense.category}
-            options={CATEGORIES}
+        <p className="text-xs text-gray-500 flex items-center gap-0.5 mt-0.5">
+          <InlineSelect value={expense.category} options={CATEGORIES}
             onChange={async v => { await updateExpense(expense.id, { category: v }); onRefresh(); }}
-            className="text-xs text-gray-500"
-          />
+            className="text-xs text-gray-500" />
           <span className="text-gray-700">·</span>
-          <InlineSelect
-            value={expense.frequency}
-            options={FREQUENCIES}
+          <InlineSelect value={expense.frequency} options={FREQUENCIES}
             onChange={async v => { await updateExpense(expense.id, { frequency: v }); onRefresh(); }}
-            className="text-xs text-gray-500"
-          />
+            className="text-xs text-gray-500" />
         </p>
       </div>
 
-      <span className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 hidden sm:block ${u.badge}`}>
-        {countdownLabel(days)}
-      </span>
+      {/* Countdown — fixed width so it never shifts neighbours */}
+      <div className="w-28 flex-shrink-0 hidden sm:flex justify-center">
+        <span className={`text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${u.badge}`}>
+          {countdownLabel(days)}
+        </span>
+      </div>
 
-      <span className="text-xs text-gray-500 flex-shrink-0 w-24 text-right hidden md:block">
-        {format(parseISO(expense.next_due_date), 'MMM d, yyyy')}
-      </span>
+      {/* Due date — fixed width, right-aligned */}
+      <div className="w-24 flex-shrink-0 hidden md:block text-right">
+        <span className="text-xs text-gray-500 whitespace-nowrap">
+          {format(parseISO(expense.next_due_date), 'MMM d, yyyy')}
+        </span>
+      </div>
 
-      <div className="flex-shrink-0 text-right">
+      {/* Amount — fixed width, right-aligned */}
+      <div className="w-36 flex-shrink-0 flex justify-end">
         <AmountCell expense={expense} onRefresh={onRefresh} disabled={selectMode} />
       </div>
 
+      {/* Actions — fixed width */}
       {!selectMode && (
-        <div className="flex items-center gap-1 flex-shrink-0">
+        <div className="w-20 flex-shrink-0 flex items-center justify-end gap-0.5">
           <button onClick={handlePay} className="p-1.5 text-gray-500 hover:text-green-400 rounded-lg hover:bg-gray-800 transition-colors" title="Mark paid">
             <CheckCircle size={14} />
           </button>
@@ -470,14 +472,14 @@ export default function Dashboard({ expenses, onEdit, onRefresh }) {
         </div>
       ) : (
         <div className="bg-gray-900 rounded-2xl ring-1 ring-gray-800 overflow-hidden">
-          {/* List header */}
-          <div className="flex items-center gap-4 px-4 py-2 border-b border-gray-800 text-xs font-medium text-gray-500">
-            {selectMode && <div className="w-4 flex-shrink-0" />}
+          {/* List header — widths must match ExpenseRow exactly */}
+          <div className="flex items-center px-4 py-2 border-b border-gray-800 text-xs font-medium text-gray-500 gap-3">
+            {selectMode && <div className="w-5 flex-shrink-0" />}
             <div className="w-2.5 flex-shrink-0" />
             <div className="flex-1">Name</div>
-            <div className="hidden sm:block w-24 flex-shrink-0">Countdown</div>
-            <div className="hidden md:block w-24 text-right flex-shrink-0">Due date</div>
-            <div className="w-32 text-right flex-shrink-0">Amount</div>
+            <div className="w-28 flex-shrink-0 hidden sm:block text-center">Countdown</div>
+            <div className="w-24 flex-shrink-0 hidden md:block text-right">Due date</div>
+            <div className="w-36 flex-shrink-0 text-right">Amount</div>
             {!selectMode && <div className="w-20 flex-shrink-0" />}
           </div>
           {visible.map(exp => (

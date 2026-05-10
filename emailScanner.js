@@ -199,24 +199,42 @@ async function extractInvoices(emails) {
   return { invoices: results, errors };
 }
 
+function invoiceDate(inv) {
+  // Best available date for sorting — prefer due/paid dates over email receipt date
+  const d = new Date(inv.due_date || inv.paid_date || inv.email_date || '1970-01-01');
+  return isNaN(d) ? new Date(0) : d;
+}
+
 function deduplicateInvoices(invoices) {
-  // Group by normalised merchant + amount
+  // Group by merchant name only (not amount) so price changes over time
+  // are merged into one entry rather than shown as two separate invoices.
   const groups = {};
   for (const inv of invoices) {
-    const key = inv.merchant.toLowerCase().trim() + '|' + inv.amount.toFixed(2);
+    const key = inv.merchant.toLowerCase().trim();
     if (!groups[key]) groups[key] = [];
     groups[key].push(inv);
   }
 
   const deduped = [];
   for (const items of Object.values(groups)) {
-    const paid     = items.filter(i => i.status === 'paid');
+    // Sort newest-first so [0] is always the most recent invoice
+    const byDate = [...items].sort((a, b) => invoiceDate(b) - invoiceDate(a));
+    const newest = byDate[0];
+
+    // For status: prefer any pending (due/upcoming) over paid, but take the
+    // amount from the newest invoice regardless of its status.
     const due      = items.filter(i => i.status === 'due');
     const upcoming = items.filter(i => i.status === 'upcoming');
-    const unpaid   = due.length ? due : upcoming;
-    const primary  = unpaid.length ? unpaid[0] : paid[0];
+    const pending  = due.length ? due[0] : upcoming.length ? upcoming[0] : null;
 
-    // Merge unique attachments across all email occurrences
+    // primary = newest invoice's data (correct price), but override status
+    // with a pending entry if one exists (so we don't say "paid" when there's
+    // an outstanding invoice at the new price).
+    const primary = pending
+      ? { ...newest, status: pending.status, due_date: pending.due_date || newest.due_date }
+      : newest;
+
+    // Merge unique PDF attachments across all occurrences
     const allAtts = items.flatMap(it => it.attachments || []);
     const seenAtts = new Map();
     for (const a of allAtts) if (!seenAtts.has(a.name)) seenAtts.set(a.name, a);
@@ -224,11 +242,10 @@ function deduplicateInvoices(invoices) {
     deduped.push({
       ...primary,
       occurrences: items.length,
-      has_paid_version: paid.length > 0 && primary.status !== 'paid',
+      has_paid_version: items.some(i => i.status === 'paid') && primary.status !== 'paid',
       frequency: inferFrequency(items),
       attachments: [...seenAtts.values()],
-      // Keep body from primary (most relevant: due/upcoming preferred over paid)
-      email_body: primary.email_body || '',
+      email_body: newest.email_body || '',
     });
   }
 

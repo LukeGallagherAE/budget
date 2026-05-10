@@ -4,7 +4,7 @@ import {
   eachDayOfInterval, format, isSameMonth, isToday,
   parseISO, addMonths, subMonths, differenceInDays,
 } from 'date-fns';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
 
 function getMonthDates(month) {
   const start = startOfWeek(startOfMonth(month), { weekStartsOn: 1 });
@@ -17,7 +17,7 @@ function expensesForDay(expenses, day) {
   return expenses.filter(e => e.next_due_date === dayStr);
 }
 
-export default function CalendarView({ expenses }) {
+export default function CalendarView({ expenses, onEdit }) {
   const [month, setMonth] = useState(new Date());
   const days = getMonthDates(month);
   const [selected, setSelected] = useState(null);
@@ -86,14 +86,15 @@ export default function CalendarView({ expenses }) {
                 </div>
                 <div className="flex flex-col gap-0.5">
                   {dayExpenses.slice(0, 3).map(exp => (
-                    <div
+                    <button
                       key={exp.id}
-                      className="text-xs px-1.5 py-0.5 rounded truncate font-medium"
+                      onClick={e => { e.stopPropagation(); onEdit && onEdit(exp); }}
+                      className="text-xs px-1.5 py-0.5 rounded truncate font-medium w-full text-left transition-opacity hover:opacity-80"
                       style={{ backgroundColor: exp.color + '33', color: exp.color }}
                       title={`${exp.name} – ${new Intl.NumberFormat('en-US', { style: 'currency', currency: exp.currency }).format(exp.amount)}`}
                     >
                       {exp.name}
-                    </div>
+                    </button>
                   ))}
                   {dayExpenses.length > 3 && (
                     <div className="text-xs text-gray-500 pl-1">+{dayExpenses.length - 3} more</div>
@@ -111,18 +112,25 @@ export default function CalendarView({ expenses }) {
           <h3 className="font-semibold text-white mb-4">{format(selected, 'EEEE, MMMM d, yyyy')}</h3>
           <div className="flex flex-col gap-3">
             {selectedDayExpenses.map(exp => (
-              <div key={exp.id} className="flex items-center justify-between p-3 bg-gray-800 rounded-xl">
+              <button
+                key={exp.id}
+                onClick={() => onEdit && onEdit(exp)}
+                className="group flex items-center justify-between p-3 bg-gray-800 rounded-xl cursor-pointer hover:bg-gray-700 transition-colors w-full text-left"
+              >
                 <div className="flex items-center gap-3">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: exp.color }} />
+                  <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: exp.color }} />
                   <div>
                     <p className="font-medium text-white text-sm">{exp.name}</p>
                     <p className="text-xs text-gray-500">{exp.category}</p>
                   </div>
                 </div>
-                <p className="font-bold text-white">
-                  {new Intl.NumberFormat('en-US', { style: 'currency', currency: exp.currency }).format(exp.amount)}
-                </p>
-              </div>
+                <div className="flex items-center gap-2">
+                  <p className="font-bold text-white">
+                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: exp.currency }).format(exp.amount)}
+                  </p>
+                  <Pencil size={13} className="text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                </div>
+              </button>
             ))}
             <p className="text-right text-sm font-semibold text-gray-400 mt-1">
               Total:{' '}

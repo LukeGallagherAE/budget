@@ -91,6 +91,16 @@ function StatusBadge({ status, hasPaid }) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
+const CATEGORIES = ['Subscriptions','Utilities','Insurance','Food','Transport','Health','Housing','Entertainment','Other'];
+const FREQ_OPTIONS = [
+  { value: 'daily',     label: 'Daily' },
+  { value: 'weekly',    label: 'Weekly' },
+  { value: 'biweekly',  label: 'Every 2 wks' },
+  { value: 'monthly',   label: 'Monthly' },
+  { value: 'quarterly', label: 'Quarterly' },
+  { value: 'yearly',    label: 'Yearly' },
+];
+
 export default function EmailView({ expenses = [], onImported }) {
   const [configured, setConfigured] = useState(null); // null = loading
   const [scanning,   setScanning]   = useState(false);
@@ -101,6 +111,11 @@ export default function EmailView({ expenses = [], onImported }) {
   const [error,           setError]           = useState(null);
   const [extractionErrors, setExtractionErrors] = useState([]);
   const [emailCount,      setEmailCount]      = useState(null);
+  const [edits,           setEdits]           = useState({});
+  const [noteOpen,        setNoteOpen]        = useState({});
+
+  const getVal = (i, field) => edits[i]?.[field] ?? results[i][field];
+  const setVal = (i, field, val) => setEdits(p => ({ ...p, [i]: { ...(p[i] || {}), [field]: val } }));
 
   useEffect(() => {
     getEmailStatus()
@@ -114,6 +129,8 @@ export default function EmailView({ expenses = [], onImported }) {
     setResults(null);
     setDone(null);
     setSelected({});
+    setEdits({});
+    setNoteOpen({});
     setScanning(true);
     try {
       const data = await scanEmails();
@@ -146,20 +163,21 @@ export default function EmailView({ expenses = [], onImported }) {
     for (let i = 0; i < results.length; i++) {
       if (!selected[i]) continue;
       const inv = results[i];
+      const overrides = edits[i] || {};
       if (inv.status === 'price_change' && inv.existing) {
-        await updateExpense(inv.existing.id, { amount: inv.amount });
+        await updateExpense(inv.existing.id, { amount: overrides.amount ?? inv.amount });
         updated++;
       } else if (inv.status === 'new') {
         await createExpense({
-          name:         inv.merchant,
-          amount:       inv.amount,
-          currency:     inv.currency || 'AUD',
-          frequency:    inv.frequency || 'monthly',
+          name:          overrides.merchant  ?? inv.merchant,
+          amount:        overrides.amount    ?? inv.amount,
+          currency:      inv.currency || 'AUD',
+          frequency:     overrides.frequency ?? inv.frequency ?? 'monthly',
           interval_days: null,
-          start_date:   inv.due_date || inv.paid_date || inv.email_date || new Date().toISOString().split('T')[0],
-          category:     inv.category || 'Other',
-          notes:        `Imported from email. Subject: "${inv.subject}"`,
-          color:        colorFor(i),
+          start_date:    inv.due_date || inv.paid_date || inv.email_date || new Date().toISOString().split('T')[0],
+          category:      overrides.category  ?? inv.category ?? 'Other',
+          notes:         overrides.notes     ?? `Imported from email. Subject: "${inv.subject}"`,
+          color:         colorFor(i),
         });
         added++;
       }
@@ -243,7 +261,7 @@ export default function EmailView({ expenses = [], onImported }) {
               <button onClick={() => setSelected({})} className="text-gray-400 hover:text-gray-300">Deselect all</button>
               <span className="text-gray-600">·</span>
               <button
-                onClick={() => { setResults(null); setDone(null); setSelected({}); setExtractionErrors([]); }}
+                onClick={() => { setResults(null); setDone(null); setSelected({}); setExtractionErrors([]); setEdits({}); setNoteOpen({}); }}
                 className="text-gray-400 hover:text-gray-300 flex items-center gap-1"
               ><RefreshCw size={10} /> Rescan</button>
             </div>
@@ -265,9 +283,9 @@ export default function EmailView({ expenses = [], onImported }) {
               const isPaid     = inv.invoice_status === 'paid';
 
               return (
-                <label
+                <div
                   key={i}
-                  className={`flex items-start gap-4 p-4 rounded-xl ring-1 cursor-pointer transition-colors ${
+                  className={`flex items-start gap-4 p-4 rounded-xl ring-1 transition-colors ${
                     isExists
                       ? 'bg-gray-900/40 ring-gray-800 opacity-50'
                       : isPriceChg
@@ -275,25 +293,38 @@ export default function EmailView({ expenses = [], onImported }) {
                       : selected[i] ? 'bg-gray-800 ring-indigo-500/40' : 'bg-gray-900 ring-gray-800 opacity-60'
                   }`}
                 >
-                  <input
-                    type="checkbox"
-                    checked={!!selected[i]}
-                    disabled={isExists}
-                    onChange={e => setSelected(s => ({ ...s, [i]: e.target.checked }))}
-                    className="mt-1 accent-indigo-500"
-                  />
+                  <label className="mt-1 cursor-pointer flex-shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={!!selected[i]}
+                      disabled={isExists}
+                      onChange={e => setSelected(s => ({ ...s, [i]: e.target.checked }))}
+                      className="accent-indigo-500"
+                    />
+                  </label>
                   <div className="w-3 h-3 rounded-full mt-1 flex-shrink-0" style={{ backgroundColor: colorFor(i) }} />
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="font-semibold text-white truncate">{inv.merchant}</p>
+                      {/* Editable name */}
+                      <input
+                        type="text"
+                        value={getVal(i, 'merchant') ?? ''}
+                        onChange={e => setVal(i, 'merchant', e.target.value)}
+                        className="bg-transparent outline-none border-b border-dashed border-transparent hover:border-gray-600 focus:border-indigo-400 font-semibold text-white w-full min-w-0"
+                      />
                       <div className="flex items-center gap-2 flex-shrink-0">
                         {isPriceChg && inv.existing && (
                           <span className="text-xs text-gray-500 line-through">${inv.existing.amount.toFixed(2)}</span>
                         )}
-                        <p className={`font-bold ${isPriceChg ? 'text-amber-400' : 'text-white'}`}>
-                          ${inv.amount.toFixed(2)}
-                        </p>
+                        {/* Editable amount */}
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={getVal(i, 'amount') ?? ''}
+                          onChange={e => setVal(i, 'amount', parseFloat(e.target.value))}
+                          className={`bg-transparent outline-none border-b border-dashed border-transparent hover:border-gray-600 focus:border-indigo-400 font-bold text-right w-24 ${isPriceChg ? 'text-amber-400' : 'text-white'}`}
+                        />
                       </div>
                     </div>
 
@@ -301,9 +332,24 @@ export default function EmailView({ expenses = [], onImported }) {
                       {/* Invoice status (paid/due/upcoming) */}
                       <StatusBadge status={inv.invoice_status || inv.status_from_email} hasPaid={inv.has_paid_version} />
 
-                      {/* Billing frequency if detected */}
-                      {inv.frequency && (
-                        <span className="text-xs text-indigo-400 font-medium">{FREQ_LABELS[inv.frequency] || inv.frequency}</span>
+                      {/* Editable category */}
+                      <select
+                        value={getVal(i, 'category') ?? 'Other'}
+                        onChange={e => setVal(i, 'category', e.target.value)}
+                        className="bg-gray-800 text-xs rounded px-1.5 py-0.5 text-gray-300 border border-gray-700 focus:outline-none focus:border-indigo-400"
+                      >
+                        {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+
+                      {/* Editable frequency — only for non-exists invoices */}
+                      {!isExists && (
+                        <select
+                          value={getVal(i, 'frequency') ?? 'monthly'}
+                          onChange={e => setVal(i, 'frequency', e.target.value)}
+                          className="bg-gray-800 text-xs rounded px-1.5 py-0.5 text-gray-300 border border-gray-700 focus:outline-none focus:border-indigo-400"
+                        >
+                          {FREQ_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </select>
                       )}
 
                       {/* Confidence */}
@@ -346,8 +392,26 @@ export default function EmailView({ expenses = [], onImported }) {
                       {inv.occurrences > 1 && <span>{inv.occurrences} emails found</span>}
                       <span className="truncate opacity-60">{inv.from}</span>
                     </div>
+
+                    {/* Notes section */}
+                    <div className="mt-2">
+                      {!noteOpen[i] ? (
+                        <button
+                          onClick={() => setNoteOpen(p => ({ ...p, [i]: true }))}
+                          className="text-xs text-gray-500 hover:text-gray-400"
+                        >+ Add note</button>
+                      ) : (
+                        <textarea
+                          rows={3}
+                          value={getVal(i, 'notes') ?? ''}
+                          onChange={e => setVal(i, 'notes', e.target.value)}
+                          placeholder="Add a note…"
+                          className="bg-gray-800/50 rounded-lg text-xs text-gray-300 w-full px-3 py-2 mt-2 resize-none focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                      )}
+                    </div>
                   </div>
-                </label>
+                </div>
               );
             })}
           </div>

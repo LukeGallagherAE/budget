@@ -102,7 +102,7 @@ function MainApp() {
         ) : tab === 'dashboard' ? (
           <Dashboard expenses={expenses} onEdit={openEdit} onRefresh={loadExpenses} />
         ) : tab === 'calendar' ? (
-          <CalendarView expenses={expenses} />
+          <CalendarView expenses={expenses} onEdit={openEdit} />
         ) : tab === 'import' ? (
           <ImportView expenses={expenses} onImported={loadExpenses} />
         ) : (

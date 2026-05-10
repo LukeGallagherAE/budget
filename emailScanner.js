@@ -49,7 +49,7 @@ async function fetchInvoiceEmails() {
 
   try {
     const since = new Date();
-    since.setDate(since.getDate() - 180);
+    since.setFullYear(since.getFullYear() - 1);
 
     // Run keyword searches in parallel, merge UIDs
     const keywords = ['invoice', 'receipt', 'payment', 'bill', 'renewal', 'subscription'];
@@ -57,7 +57,7 @@ async function fetchInvoiceEmails() {
       keywords.map(kw => client.search({ since, subject: kw }).catch(() => []))
     );
     const allUids = [...new Set(uidArrays.flat())].sort((a, b) => a - b);
-    const targetUids = allUids.slice(-120);
+    const targetUids = allUids.slice(-300);
     if (!targetUids.length) return [];
 
     for await (const msg of client.fetch(targetUids, { source: true })) {

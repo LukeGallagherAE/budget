@@ -36,7 +36,7 @@ function SetupCard() {
           <h3 className="font-semibold text-white">Connect your Gmail</h3>
         </div>
         <p className="text-sm text-gray-400">
-          ExpenseRadar scans your last 6 months of invoice emails — receipts,
+          ExpenseRadar scans your last 12 months of invoice emails — receipts,
           payment confirmations, renewal notices — and checks them against what
           you're already tracking.
         </p>
@@ -203,7 +203,7 @@ export default function EmailView({ expenses = [], onImported }) {
       <div>
         <h2 className="text-xl font-bold text-white mb-1">Invoice Emails</h2>
         <p className="text-sm text-gray-400">
-          Scan your last 6 months of Gmail for invoices, receipts, and payment reminders.
+          Scan your last 12 months of Gmail for invoices, receipts, and payment reminders.
           Already-tracked subscriptions are highlighted so you don't add duplicates.
         </p>
       </div>
